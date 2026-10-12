@@ -41,6 +41,10 @@ tonic = { version = "0.14.2", default-features = false, features = ["router", "s
 tonic-health = "0.14.2"
 tonic-reflection = { version = "0.14.2", default-features = false, features = ["server"] }
 
+[[example]]
+name = "grpc_schema"
+required-features = ["grpcschema"]
+
 [package.metadata.docs.rs]
 features = ["grpcschema"]
 rustdoc-args = ["--cfg", "docsrs"]
