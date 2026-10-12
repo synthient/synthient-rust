@@ -1,0 +1,18 @@
+# Built by scripts/check-package.sh, which places the extracted .crate at
+# ../synthient. It is its own workspace, without a lockfile, so it resolves
+# dependencies the way a new consumer would.
+[package]
+name = "synthient-consumer-test"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.85"
+publish = false
+
+[dependencies]
+synthient = { path = "../synthient" }
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread"] }
+
+[features]
+grpcschema = ["synthient/grpcschema"]
+
+[workspace]
