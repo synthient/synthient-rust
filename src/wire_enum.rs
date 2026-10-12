@@ -18,6 +18,9 @@ macro_rules! wire_enum {
         }
 
         impl $name {
+            #[cfg(test)]
+            pub(crate) const VALUES: &[&str] = &[$($value),+];
+
             /// Returns the value as the API sends it.
             pub fn as_str(&self) -> &str {
                 match self {

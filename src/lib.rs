@@ -113,6 +113,9 @@ mod retry;
 mod stream;
 mod timestamp;
 
+#[cfg(test)]
+mod conformance;
+
 pub use account::{Account, AccountApiKey, LookupQuota, Organization, Relation, Scope};
 pub use client::{Client, ClientBuilder, DEFAULT_BASE_URL, VERSION};
 pub use error::{ApiError, Error, Result};
