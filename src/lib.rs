@@ -96,6 +96,8 @@
 //!
 //! - `rustls` (default): TLS through rustls.
 //! - `native-tls`: TLS through the platform's native library.
+//! - `grpcschema`: the `grpcschema` module, which fetches the protobuf
+//!   schema of the Synthient gRPC API.
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
@@ -107,6 +109,9 @@ mod client;
 mod error;
 mod events;
 mod feed;
+#[cfg(feature = "grpcschema")]
+#[cfg_attr(docsrs, doc(cfg(feature = "grpcschema")))]
+pub mod grpcschema;
 mod lookup;
 mod response;
 mod retry;
