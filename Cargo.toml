@@ -1,0 +1,57 @@
+[package]
+name = "synthient"
+version = "1.0.0"
+edition = "2024"
+rust-version = "1.85"
+description = "The official Rust client for the Synthient API: IP and domain intelligence, account details, and real-time and bulk data feeds."
+license = "Apache-2.0"
+repository = "https://github.com/synthient/synthient-rust"
+homepage = "https://synthient.com"
+documentation = "https://docs.rs/synthient"
+readme = "README.md"
+keywords = ["synthient", "ip", "proxy", "vpn", "threat-intelligence"]
+categories = ["api-bindings", "network-programming", "web-programming::http-client"]
+include = ["/src", "/examples", "/README.md", "/LICENSE"]
+
+[features]
+default = ["rustls"]
+rustls = ["reqwest/rustls"]
+native-tls = ["reqwest/native-tls"]
+grpcschema = ["dep:prost", "dep:prost-types", "dep:tonic", "dep:tonic-reflection"]
+
+[dependencies]
+base64 = "0.23.0"
+bytes = "1.10.0"
+futures-util = { version = "0.3.31", default-features = false, features = ["alloc"] }
+memchr = "2.7.4"
+prost = { version = "0.14.1", optional = true }
+prost-types = { version = "0.14.1", optional = true }
+reqwest = { version = "0.13.5", default-features = false, features = ["http2", "system-proxy"] }
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.140"
+tokio = { version = "1.44.2", features = ["time"] }
+tonic = { version = "0.14.2", optional = true, default-features = false, features = ["channel", "tls-aws-lc", "tls-native-roots"] }
+tonic-reflection = { version = "0.14.2", optional = true, default-features = false }
+
+[dev-dependencies]
+hex = "0.4.3"
+sha2 = "0.10.9"
+tokio = { version = "1.44.2", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "test-util"] }
+tonic = { version = "0.14.2", default-features = false, features = ["router", "server"] }
+tonic-health = "0.14.2"
+tonic-reflection = { version = "0.14.2", default-features = false, features = ["server"] }
+
+[package.metadata.docs.rs]
+features = ["grpcschema"]
+rustdoc-args = ["--cfg", "docsrs"]
+
+[lints.rust]
+missing_docs = "warn"
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(docsrs)"] }
+unsafe_code = "forbid"
+unreachable_pub = "warn"
+
+[lints.clippy]
+cast_possible_truncation = "warn"
+cast_possible_wrap = "warn"
+cast_sign_loss = "warn"

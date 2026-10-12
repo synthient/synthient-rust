@@ -1,0 +1,5 @@
+/target
+/consumer-test/target
+/consumer-test/Cargo.lock
+.DS_Store
+*.parquet
