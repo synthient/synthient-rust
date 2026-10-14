@@ -37,13 +37,23 @@ impl RetryPolicy {
             return None;
         }
         match result {
-            Err(err) => (self == Self::Transient && !err.is_builder()).then(|| backoff(attempt)),
+            Err(err) => self.transport_delay(err, attempt, max_retries),
             Ok(response) if self.retries(response) => {
                 let retry_after = parse_retry_after(response.headers()).unwrap_or_default();
                 (retry_after <= MAX_RETRY_AFTER).then(|| backoff(attempt).max(retry_after))
             }
             Ok(_) => None,
         }
+    }
+
+    pub(crate) fn transport_delay(
+        self,
+        err: &reqwest::Error,
+        attempt: u32,
+        max_retries: u32,
+    ) -> Option<Duration> {
+        (attempt < max_retries && self == Self::Transient && !err.is_builder())
+            .then(|| backoff(attempt))
     }
 
     fn retries(self, response: &Response) -> bool {

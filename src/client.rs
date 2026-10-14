@@ -148,14 +148,24 @@ impl Client {
         request: &Request,
         handle: impl AsyncFnOnce(Response) -> Result<T>,
     ) -> Result<T> {
+        self.with_timeout(async |deadline| {
+            let response = self
+                .send(request, deadline, async |response| Ok(response))
+                .await?;
+            handle(response).await
+        })
+        .await
+    }
+
+    async fn with_timeout<T>(
+        &self,
+        operation: impl AsyncFnOnce(Option<Instant>) -> Result<T>,
+    ) -> Result<T> {
         let deadline = self
             .inner
             .timeout
             .and_then(|timeout| Instant::now().checked_add(timeout));
-        let operation = async {
-            let response = self.send(request, deadline).await?;
-            handle(response).await
-        };
+        let operation = operation(deadline);
         match deadline {
             Some(deadline) => tokio::time::timeout_at(deadline, operation)
                 .await
@@ -166,37 +176,58 @@ impl Client {
 
     /// Sends a request and decodes its JSON response.
     pub(crate) async fn request_json<T: DeserializeOwned>(&self, request: Request) -> Result<T> {
-        self.execute(&request, async |mut response| {
-            if !response.status().is_success() {
-                return Err(api_error(response).await);
-            }
-            let mut body = Vec::new();
-            if read_body(&mut response, MAX_RESPONSE_SIZE, &mut body).await? {
-                return Err(Error::Protocol(format!(
-                    "response body exceeds {MAX_RESPONSE_SIZE} bytes"
-                )));
-            }
-            Ok(serde_json::from_slice(&body)?)
+        self.with_timeout(async |deadline| {
+            self.send(&request, deadline, async |mut response| {
+                if !response.status().is_success() {
+                    return Err(api_error(response).await);
+                }
+                let mut body = Vec::new();
+                if read_body(&mut response, MAX_RESPONSE_SIZE, &mut body).await? {
+                    return Err(Error::Protocol(format!(
+                        "response body exceeds {MAX_RESPONSE_SIZE} bytes"
+                    )));
+                }
+                Ok(serde_json::from_slice(&body)?)
+            })
+            .await
         })
         .await
     }
 
-    async fn send(&self, request: &Request, deadline: Option<Instant>) -> Result<Response> {
+    async fn send<T>(
+        &self,
+        request: &Request,
+        deadline: Option<Instant>,
+        mut handle: impl AsyncFnMut(Response) -> Result<T>,
+    ) -> Result<T> {
+        let within_deadline = |delay: &Duration| {
+            deadline
+                .is_none_or(|deadline| deadline.saturating_duration_since(Instant::now()) > *delay)
+        };
         let mut attempt = 0;
         loop {
             let result = self.attempt(request).await;
             let delay = request
                 .policy
                 .delay(&result, attempt, self.inner.max_retries)
-                .filter(|delay| {
-                    deadline.is_none_or(|deadline| {
-                        deadline.saturating_duration_since(Instant::now()) > *delay
-                    })
-                });
-            let Some(delay) = delay else {
-                return Ok(result?);
+                .filter(within_deadline);
+            let delay = if let Some(delay) = delay {
+                drop(result);
+                delay
+            } else {
+                let result = handle(result?).await;
+                let delay = match &result {
+                    Err(Error::Http(err)) => request
+                        .policy
+                        .transport_delay(err, attempt, self.inner.max_retries)
+                        .filter(within_deadline),
+                    _ => None,
+                };
+                let Some(delay) = delay else {
+                    return result;
+                };
+                delay
             };
-            drop(result);
             tokio::time::sleep(delay).await;
             attempt += 1;
         }
