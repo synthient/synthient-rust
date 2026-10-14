@@ -12,17 +12,18 @@ trap 'rm -rf "$work"' EXIT
 
 cd "$root"
 version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
+target=$(cargo metadata --format-version 1 --no-deps | sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p')
 cargo package --locked --list "$@"
 cargo package --locked "$@"
 
-tar -xzf "target/package/synthient-$version.crate" -C "$work"
+tar -xzf "$target/package/synthient-$version.crate" -C "$work"
 mv "$work/synthient-$version" "$work/synthient"
 mkdir "$work/consumer"
 cp -R consumer-test/Cargo.toml consumer-test/src "$work/consumer/"
 
 cd "$work/consumer"
-# Builds under the repository target directory, so CI caches keep compiled
+# Builds under the target directory, so CI caches keep compiled
 # dependencies. The consumer still resolves them without a lockfile.
-export CARGO_TARGET_DIR="$root/target/consumer"
+export CARGO_TARGET_DIR="$target/consumer"
 cargo run --quiet
 cargo run --quiet --features grpcschema
