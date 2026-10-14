@@ -1,11 +1,14 @@
 use std::net::Ipv4Addr;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use synthient::{Error, StatusCode};
+use tokio::sync::mpsc;
 use tokio::time::Instant;
 
 use crate::server::{
-    ACCOUNT, IP_INFO, Reply, Server, expect_api_error, json, rate_limited, response,
+    ACCOUNT, IP_INFO, Reply, Server, expect_api_error, head, json, rate_limited, response,
+    truncated_json,
 };
 
 #[tokio::test(start_paused = true)]
@@ -167,4 +170,108 @@ async fn billed_lookups_do_not_retry_transport_errors() {
 
     assert!(matches!(err, Error::Http(_)), "{err:?}");
     assert_eq!(server.received().len(), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn free_calls_retry_body_read_errors() {
+    let server = Server::start(|index, _| match index {
+        0 => truncated_json(ACCOUNT),
+        _ => json(200, ACCOUNT),
+    })
+    .await;
+    let client = server.paused_builder().build().unwrap();
+
+    let account = client.account().await.unwrap();
+
+    assert_eq!(account.email, "dev@example.com");
+    assert_eq!(server.received().len(), 2);
+}
+
+#[tokio::test(start_paused = true)]
+async fn body_read_errors_share_the_retry_budget() {
+    for (max_retries, attempts) in [(0, 1), (1, 2), (2, 3)] {
+        let server = Server::start(|index, _| match index {
+            1 => response(503, &[], b""),
+            _ => truncated_json(ACCOUNT),
+        })
+        .await;
+        let client = server
+            .paused_builder()
+            .max_retries(max_retries)
+            .build()
+            .unwrap();
+
+        let err = client.account().await.unwrap_err();
+
+        if max_retries == 1 {
+            assert!(matches!(err, Error::Api(_)), "{err:?}");
+        } else {
+            assert!(matches!(err, Error::Http(_)), "{err:?}");
+        }
+        assert_eq!(
+            server.received().len(),
+            attempts,
+            "max_retries {max_retries}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn free_calls_retry_body_read_timeouts() {
+    let (_sender, receiver) = mpsc::unbounded_channel();
+    let receiver = Mutex::new(Some(receiver));
+    let server = Server::start(move |index, _| match index {
+        0 => Reply::Stream(
+            head(200, &[("content-length", "100")]),
+            receiver.lock().unwrap().take().unwrap(),
+        ),
+        _ => json(200, ACCOUNT),
+    })
+    .await;
+    let client = server
+        .builder()
+        .http_client(synthient::reqwest::Client::builder().read_timeout(Duration::from_millis(200)))
+        .max_retries(1)
+        .build()
+        .unwrap();
+
+    client.account().await.unwrap();
+
+    assert_eq!(server.received().len(), 2);
+}
+
+#[tokio::test]
+async fn body_read_retry_past_the_timeout_is_skipped() {
+    let server = Server::start(|_, _| truncated_json(ACCOUNT)).await;
+    let client = server
+        .builder()
+        .timeout(Duration::from_millis(500))
+        .build()
+        .unwrap();
+
+    let err = client.account().await.unwrap_err();
+
+    assert!(matches!(err, Error::Http(_)), "{err:?}");
+    assert_eq!(server.received().len(), 1);
+}
+
+#[tokio::test]
+async fn billed_lookups_do_not_retry_body_read_errors() {
+    let server = Server::start(|_, _| truncated_json(IP_INFO)).await;
+    let client = server.client();
+
+    let ip = client
+        .lookup_ip(Ipv4Addr::new(8, 8, 8, 8))
+        .await
+        .unwrap_err();
+    let ips = client
+        .lookup_ips(&["8.8.8.8".parse().unwrap()])
+        .await
+        .unwrap_err();
+    let domain = client.lookup_domain("example.com").await.unwrap_err();
+
+    for err in [ip, ips, domain] {
+        assert!(matches!(err, Error::Http(_)), "{err:?}");
+    }
+    assert_eq!(server.received().len(), 3);
 }

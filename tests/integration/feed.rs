@@ -1,7 +1,9 @@
 use futures_util::StreamExt;
 use synthient::{Error, ExportKind, ParquetType, StatusCode};
 
-use crate::server::{Server, closed_addr, expect_api_error, export_page, json, problem, response};
+use crate::server::{
+    Server, closed_addr, expect_api_error, export_page, json, problem, response, truncated_json,
+};
 
 const META: &str = r#"{"id":"2026-05-03/7","stream":"honeypot_http","kind":"hourly","format":"parquet","date":1777791600,"hour":7,"rows":2,"size":10,"checksum":"ab","created_at":1778200137,"schema":{"fields":[{"name":"tunnel_id","type":"uint64"}]}}"#;
 
@@ -152,6 +154,30 @@ async fn reads_export_metadata() {
         "/api/v4/feeds/helio/http/export/2026-05-03/7/meta"
     );
     assert_eq!(meta.schema.fields[0].r#type, ParquetType::Uint64);
+}
+
+#[tokio::test(start_paused = true)]
+async fn export_json_requests_retry_body_read_errors() {
+    let server = Server::start(|index, request| {
+        let body = if request.target.ends_with("/meta") {
+            META.to_owned()
+        } else {
+            export_page(&["2026-05-03/7"], None)
+        };
+        match index {
+            0 | 2 => truncated_json(&body),
+            _ => json(200, &body),
+        }
+    })
+    .await;
+    let feed = server.paused_builder().build().unwrap().proxies();
+
+    let page = feed.list_exports().await.unwrap();
+    let meta = feed.export_meta("2026-05-03/7").await.unwrap();
+
+    assert_eq!(page.exports[0].id, "2026-05-03/7");
+    assert_eq!(meta.id, "2026-05-03/7");
+    assert_eq!(server.received().len(), 4);
 }
 
 #[tokio::test]

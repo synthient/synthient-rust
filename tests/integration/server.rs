@@ -233,6 +233,16 @@ pub(crate) fn json(status: u16, body: &str) -> Reply {
     )
 }
 
+pub(crate) fn truncated_json(body: &str) -> Reply {
+    let mut bytes = response_bytes(
+        200,
+        &[("content-type", "application/json")],
+        body.as_bytes(),
+    );
+    bytes.pop();
+    Reply::Partial(bytes)
+}
+
 pub(crate) fn problem(status: u16, body: &str) -> Reply {
     response(
         status,
