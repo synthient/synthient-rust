@@ -19,7 +19,8 @@ pub(crate) enum RetryPolicy {
     Transient,
     /// Retries only rate limits, which the API rejects before doing any work.
     /// Used for billed lookups, where a retried server error or transport
-    /// failure could be charged twice.
+    /// failure could be charged twice, and for the health check, which should
+    /// report a failure right away.
     RateLimit,
 }
 

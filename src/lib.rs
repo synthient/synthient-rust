@@ -57,6 +57,8 @@
 //! carry Retry-After, which the rate limiter returns before doing any work. A
 //! 429 without Retry-After means the key's monthly request budget is spent or
 //! it has too many open streams, so it is returned without a retry.
+//! [`Client::health`] is retried the same way as billed lookups, so it reports
+//! an unhealthy API right away.
 //!
 //! Retries back off exponentially with jitter and honor Retry-After. A
 //! Retry-After over a minute, or one that would outlast the client's

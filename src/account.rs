@@ -138,7 +138,7 @@ impl Client {
     }
 
     /// Checks that the API and its dependencies are healthy. It costs no
-    /// credits.
+    /// credits, and is retried only on 429 responses that carry Retry-After.
     ///
     /// # Errors
     ///
