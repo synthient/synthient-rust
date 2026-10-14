@@ -4,6 +4,7 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    versioning-strategy: increase-if-necessary
     cooldown:
       default-days: 7
     commit-message:
