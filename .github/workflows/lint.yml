@@ -28,6 +28,9 @@ jobs:
         run: rustup toolchain install stable --profile minimal --component clippy,rustfmt
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo fmt --check
+      - name: Check consumer-test formatting
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: rustfmt --edition 2024 --check consumer-test/src/main.rs
       - name: Clippy
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: cargo clippy --locked --all-targets --all-features -- -D warnings

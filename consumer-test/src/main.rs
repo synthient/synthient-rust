@@ -50,7 +50,10 @@ async fn main() {
         let endpoint = closed.local_addr().unwrap().to_string();
         drop(closed);
         let fetch = grpcschema::fetch("key").endpoint(endpoint).plaintext(true);
-        let err = tokio::spawn(fetch.into_future()).await.unwrap().unwrap_err();
+        let err = tokio::spawn(fetch.into_future())
+            .await
+            .unwrap()
+            .unwrap_err();
         assert_eq!(err.code, Some(Code::Unavailable));
     }
     println!("consumer check passed");
