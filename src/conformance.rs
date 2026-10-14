@@ -3,6 +3,7 @@
 //! tables here together.
 
 use std::collections::BTreeSet;
+use std::path::Path;
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -114,10 +115,16 @@ fn sample_override(location: &str) -> Option<Value> {
     }
 }
 
-fn spec() -> Value {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/.sdkgen/openapi.json");
-    let text = std::fs::read_to_string(path).expect("read .sdkgen/openapi.json");
-    serde_json::from_str(&text).expect("decode .sdkgen/openapi.json")
+/// Reads the spec, or returns `None` in a packaged crate, which leaves out
+/// `.sdkgen`. Cargo adds `Cargo.toml.orig` to every packaged crate.
+fn spec() -> Option<Value> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    if root.join("Cargo.toml.orig").exists() {
+        return None;
+    }
+    let text = std::fs::read_to_string(root.join(".sdkgen/openapi.json"))
+        .expect("read .sdkgen/openapi.json");
+    Some(serde_json::from_str(&text).expect("decode .sdkgen/openapi.json"))
 }
 
 fn schemas(spec: &Value) -> &Map<String, Value> {
@@ -207,7 +214,7 @@ fn sample(spec: &Value, location: &str, schema: &Value) -> Value {
 
 #[test]
 fn spec_schemas_are_modeled() {
-    let spec = spec();
+    let Some(spec) = spec() else { return };
     let mut failures = Vec::new();
 
     for (name, schema) in schemas(&spec) {
@@ -268,7 +275,7 @@ fn spec_schemas_are_modeled() {
 
 #[test]
 fn spec_enums_are_modeled() {
-    let spec = spec();
+    let Some(spec) = spec() else { return };
     let mut failures = Vec::new();
 
     for (name, schema) in schemas(&spec) {
@@ -307,7 +314,7 @@ fn spec_enums_are_modeled() {
 
 #[test]
 fn spec_operations_are_implemented() {
-    let spec = spec();
+    let Some(spec) = spec() else { return };
     let client = Client::new("key").unwrap();
 
     let mut implemented: BTreeSet<String> = [
