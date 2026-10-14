@@ -429,6 +429,15 @@ mod tests {
     }
 
     #[test]
+    fn enums_display_with_padding() {
+        assert_eq!(format!("[{:<10}]", ProxyType::FreeVpn), "[FREE_VPN  ]");
+        assert_eq!(
+            format!("[{:>5}]", ProxyType::Unknown("NEW".into())),
+            "[  NEW]"
+        );
+    }
+
+    #[test]
     fn wrong_types_are_rejected() {
         assert!(serde_json::from_str::<ProxyEvent>(r#"{"asn":"13335"}"#).is_err());
         assert!(serde_json::from_str::<ProxyEvent>(r#"{"asn":4294967296}"#).is_err());
