@@ -162,7 +162,7 @@ async fn transport_errors_do_not_include_the_url() {
         .unwrap();
 
     let err = client
-        .lookup_domain("secret-domain.example")
+        .lookup_domain("secret-domain.example", None)
         .await
         .unwrap_err();
 

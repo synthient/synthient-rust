@@ -14,7 +14,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok_or("usage: lookup_domain <domain>")?;
     let client = Client::new(std::env::var("SYNTHIENT_API_KEY")?)?;
 
-    let info = client.lookup_domain(domain).limit(5).await?;
+    let info = client.lookup_domain(&domain, Some(5)).await?;
 
     println!("domain: {} {}", info.domain, info.status);
     println!(

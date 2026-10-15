@@ -137,8 +137,8 @@ pub use feed::{
 };
 pub use lookup::{
     ActivityStats, AsnCount, Cadence, CountryCount, Device, DomainEvent, DomainInfo, DomainStats,
-    DomainStatus, Intelligence, IpInfo, Location, LookupDomain, Network, NetworkType, Os,
-    PortCount, Provider, SubdomainCount, TimeSeriesPoint, UniqueIps,
+    DomainStatus, Intelligence, IpInfo, Location, Network, NetworkType, Os, PortCount, Provider,
+    SubdomainCount, TimeSeriesPoint, UniqueIps,
 };
 pub use reqwest;
 pub use reqwest::StatusCode;

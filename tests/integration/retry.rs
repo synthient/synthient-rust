@@ -60,7 +60,7 @@ async fn billed_lookups_do_not_retry_server_errors() {
 
         let ip = expect_api_error(client.lookup_ip(Ipv4Addr::new(8, 8, 8, 8)).await);
         let ips = expect_api_error(client.lookup_ips(&["8.8.8.8".parse().unwrap()]).await);
-        let domain = expect_api_error(client.lookup_domain("example.com").await);
+        let domain = expect_api_error(client.lookup_domain("example.com", None).await);
 
         assert_eq!([ip.status, ips.status, domain.status], [code; 3]);
 
@@ -268,7 +268,7 @@ async fn billed_lookups_do_not_retry_body_read_errors() {
         .lookup_ips(&["8.8.8.8".parse().unwrap()])
         .await
         .unwrap_err();
-    let domain = client.lookup_domain("example.com").await.unwrap_err();
+    let domain = client.lookup_domain("example.com", None).await.unwrap_err();
 
     for err in [ip, ips, domain] {
         assert!(matches!(err, Error::Http(_)), "{err:?}");

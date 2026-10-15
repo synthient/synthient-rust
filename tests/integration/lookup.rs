@@ -79,8 +79,7 @@ async fn looks_up_a_domain() {
 
     let info = server
         .client()
-        .lookup_domain("example.com")
-        .limit(5)
+        .lookup_domain("example.com", Some(5))
         .await
         .unwrap();
 
@@ -101,7 +100,7 @@ async fn domain_is_one_encoded_path_segment() {
 
     server
         .client()
-        .lookup_domain("a/../b?c#d%e é")
+        .lookup_domain("a/../b?c#d%e é", None)
         .await
         .unwrap();
 
@@ -117,7 +116,7 @@ async fn rejects_domains_that_change_the_path() {
     let client = server.client();
 
     for domain in ["", ".", ".."] {
-        let result = client.lookup_domain(domain).await;
+        let result = client.lookup_domain(domain, None).await;
         assert!(matches!(result, Err(Error::InvalidInput(_))), "{domain:?}");
     }
     assert!(server.received().is_empty());

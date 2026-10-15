@@ -1,6 +1,5 @@
 use std::net::IpAddr;
 
-use futures_util::future::BoxFuture;
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 
@@ -180,7 +179,8 @@ pub struct DomainInfo {
     pub hour_dow_heatmap: Vec<Vec<u64>>,
     /// The hourly activity pattern.
     pub activity_stats: ActivityStats,
-    /// The most recent events, capped by [`LookupDomain::limit`].
+    /// The most recent events, capped by the `limit` passed to
+    /// [`Client::lookup_domain`].
     pub recent_events: Vec<DomainEvent>,
 }
 
@@ -383,70 +383,29 @@ impl Client {
         Ok(response.results)
     }
 
-    /// Returns the honeypot traffic observed for a domain. Await the returned
-    /// [`LookupDomain`] to send the request, optionally after setting a
-    /// [`limit`](LookupDomain::limit). Internationalized names must be sent
-    /// in Punycode. A domain that has never been observed returns
-    /// [`DomainStatus::Inactive`] and zero counts rather than an error. Each
-    /// lookup costs one credit.
+    /// Returns the honeypot traffic observed for a domain. `limit` caps the
+    /// number of recent events returned, from 1 to 1000, and the API default
+    /// is 50. Internationalized names must be sent in Punycode. A domain that
+    /// has never been observed returns [`DomainStatus::Inactive`] and zero
+    /// counts rather than an error. Each lookup costs one credit.
     ///
     /// ```no_run
     /// # async fn run(client: synthient::Client) -> Result<(), synthient::Error> {
-    /// let info = client.lookup_domain("example.com").limit(10).await?;
+    /// let info = client.lookup_domain("example.com", Some(10)).await?;
     /// println!("{} events in 24h", info.stats.events_24h);
     /// # Ok(())
     /// # }
     /// ```
-    pub fn lookup_domain(&self, domain: impl Into<String>) -> LookupDomain {
-        LookupDomain {
-            client: self.clone(),
-            domain: domain.into(),
-            limit: None,
+    pub async fn lookup_domain(&self, domain: &str, limit: Option<u32>) -> Result<DomainInfo> {
+        if matches!(domain, "" | "." | "..") {
+            return Err(Error::InvalidInput(format!("invalid domain {domain:?}")));
         }
-    }
-}
-
-/// A domain lookup that is sent when awaited. Create one with
-/// [`Client::lookup_domain`].
-#[derive(Debug, Clone)]
-#[must_use = "a domain lookup does nothing until it is awaited"]
-pub struct LookupDomain {
-    client: Client,
-    domain: String,
-    limit: Option<u32>,
-}
-
-impl LookupDomain {
-    /// Caps the number of recent events returned, from 1 to 1000. The API
-    /// default is 50.
-    pub fn limit(mut self, limit: u32) -> Self {
-        self.limit = Some(limit);
-        self
-    }
-}
-
-impl IntoFuture for LookupDomain {
-    type Output = Result<DomainInfo>;
-    type IntoFuture = BoxFuture<'static, Result<DomainInfo>>;
-
-    fn into_future(self) -> Self::IntoFuture {
-        Box::pin(async move {
-            if matches!(self.domain.as_str(), "" | "." | "..") {
-                return Err(Error::InvalidInput(format!(
-                    "invalid domain {:?}",
-                    self.domain
-                )));
-            }
-            let mut url = self
-                .client
-                .endpoint(["lookup", "domain", self.domain.as_str()]);
-            if let Some(limit) = self.limit {
-                url.query_pairs_mut()
-                    .append_pair("limit", &limit.to_string());
-            }
-            self.client
-                .request_json(Request::get(url, RetryPolicy::RateLimit))
-                .await
-        })
+        let mut url = self.endpoint(["lookup", "domain", domain]);
+        if let Some(limit) = limit {
+            url.query_pairs_mut()
+                .append_pair("limit", &limit.to_string());
+        }
+        self.request_json(Request::get(url, RetryPolicy::RateLimit))
+            .await
     }
 }

@@ -153,7 +153,7 @@ fn futures_and_streams_are_send() {
     assert_send(&client.account());
     assert_send(&feed.stream());
     assert_send(&feed.download("latest"));
-    assert_send_static(&client.lookup_domain("example.com").into_future());
+    assert_send(&client.lookup_domain("example.com", None));
     assert_send_static(&feed.list_exports().into_future());
     assert_send_static(&feed.list_exports().into_stream());
 }
