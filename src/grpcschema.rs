@@ -51,7 +51,6 @@ pub fn fetch(api_key: impl Into<String>) -> Fetch {
         api_key: api_key.into(),
         endpoint: DEFAULT_ENDPOINT.to_owned(),
         plaintext: false,
-        include_reflection: false,
         symbols: Vec::new(),
         timeout: DEFAULT_TIMEOUT,
     }
@@ -63,7 +62,6 @@ pub struct Fetch {
     api_key: String,
     endpoint: String,
     plaintext: bool,
-    include_reflection: bool,
     symbols: Vec<String>,
     timeout: Duration,
 }
@@ -73,7 +71,6 @@ impl fmt::Debug for Fetch {
         f.debug_struct("Fetch")
             .field("endpoint", &self.endpoint)
             .field("plaintext", &self.plaintext)
-            .field("include_reflection", &self.include_reflection)
             .field("symbols", &self.symbols)
             .field("timeout", &self.timeout)
             .finish_non_exhaustive()
@@ -94,14 +91,9 @@ impl Fetch {
         self
     }
 
-    /// Includes the reflection service itself when listing services.
-    pub fn include_reflection(mut self, include: bool) -> Self {
-        self.include_reflection = include;
-        self
-    }
-
     /// Resolves these fully qualified service or message names instead of
-    /// every service the server lists.
+    /// every service the server lists. The listing leaves out the
+    /// `grpc.reflection` services, so name one here to fetch its schema.
     pub fn symbols<I, S>(mut self, symbols: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -129,7 +121,7 @@ impl Fetch {
             }
         }
         if symbols.is_empty() {
-            symbols = reflector.list_services(self.include_reflection).await?;
+            symbols = reflector.list_services().await?;
         }
         if symbols.is_empty() {
             return Err(SchemaError::new("server lists no services"));
@@ -356,10 +348,7 @@ impl Reflector {
         }
     }
 
-    async fn list_services(
-        &mut self,
-        include_reflection: bool,
-    ) -> Result<Vec<String>, SchemaError> {
+    async fn list_services(&mut self) -> Result<Vec<String>, SchemaError> {
         let MessageResponse::ListServicesResponse(list) = self
             .exchange(MessageRequest::ListServices(String::new()))
             .await?
@@ -371,7 +360,7 @@ impl Reflector {
             .into_iter()
             .map(|service| service.name.trim().to_owned())
             .filter(|name| !name.is_empty())
-            .filter(|name| include_reflection || !name.starts_with("grpc.reflection."))
+            .filter(|name| !name.starts_with("grpc.reflection."))
             .collect();
         services.sort();
         Ok(services)

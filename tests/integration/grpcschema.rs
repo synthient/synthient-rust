@@ -158,14 +158,16 @@ async fn applies_the_options() {
     let schema = grpcschema::fetch(" ")
         .endpoint(format!("grpc://{addr}"))
         .plaintext(true)
-        .include_reflection(true)
+        .symbols(["grpc.reflection.v1.ServerReflection"])
         .await
         .unwrap();
 
     assert!(
         schema
-            .symbols
-            .contains(&"grpc.reflection.v1.ServerReflection".to_owned())
+            .descriptor_set
+            .file
+            .iter()
+            .any(|file| file.package() == "grpc.reflection.v1")
     );
     assert!(keys.lock().unwrap().iter().all(Option::is_none));
 
