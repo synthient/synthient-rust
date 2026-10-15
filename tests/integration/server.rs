@@ -5,6 +5,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use synthient::reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use synthient::{ApiError, Client, ClientBuilder, Error, StatusCode};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
@@ -17,17 +18,14 @@ pub(crate) const API_KEY: &str = "00000000-0000-4000-8000-000000000000";
 pub(crate) struct Received {
     pub(crate) method: String,
     pub(crate) target: String,
-    pub(crate) headers: Vec<(String, String)>,
+    pub(crate) headers: HeaderMap,
     pub(crate) body: Vec<u8>,
     pub(crate) connection: usize,
 }
 
 impl Received {
     pub(crate) fn header(&self, name: &str) -> Option<&str> {
-        self.headers
-            .iter()
-            .find(|(header, _)| header.eq_ignore_ascii_case(name))
-            .map(|(_, value)| value.as_str())
+        self.headers.get(name)?.to_str().ok()
     }
 }
 
@@ -167,7 +165,7 @@ async fn read_request(
     let method = parts.next()?.to_owned();
     let target = parts.next()?.to_owned();
 
-    let mut headers = Vec::new();
+    let mut headers = HeaderMap::new();
     loop {
         let mut line = String::new();
         reader.read_line(&mut line).await.ok()?;
@@ -176,7 +174,9 @@ async fn read_request(
             break;
         }
         let (name, value) = line.split_once(':')?;
-        headers.push((name.trim().to_owned(), value.trim().to_owned()));
+        let name = HeaderName::from_bytes(name.trim().as_bytes()).ok()?;
+        let value = HeaderValue::from_str(value.trim()).ok()?;
+        headers.append(name, value);
     }
 
     let mut request = Received {
