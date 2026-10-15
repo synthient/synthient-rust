@@ -20,9 +20,7 @@ async fn lists_one_page() {
     let page = server
         .client()
         .proxies()
-        .list_exports()
-        .limit(2)
-        .cursor("abc")
+        .list_exports(Some(2), Some("abc"))
         .await
         .unwrap();
 
@@ -41,11 +39,11 @@ async fn lists_one_page() {
 #[tokio::test]
 async fn an_empty_cursor_ends_the_listing() {
     let server = Server::start(|_, _| json(200, &export_page(&["2026-05-03"], Some("")))).await;
-    let exports = server.client().proxies().list_exports();
+    let feed = server.client().proxies();
 
-    let page = exports.clone().await.unwrap();
-    let ids: Vec<String> = exports
-        .into_stream()
+    let page = feed.list_exports(None, None).await.unwrap();
+    let ids: Vec<String> = feed
+        .all_exports(None, None)
         .map(|export| export.unwrap().id)
         .collect()
         .await;
@@ -64,12 +62,7 @@ async fn streams_every_page_including_empty_ones() {
     })
     .await;
 
-    let exports = server
-        .client()
-        .proxies()
-        .list_exports()
-        .limit(2)
-        .into_stream();
+    let exports = server.client().proxies().all_exports(Some(2), Some("c0"));
     let ids: Vec<String> = exports.map(|export| export.unwrap().id).collect().await;
 
     assert_eq!(ids, ["2026-05-04", "2026-05-03", "2026-05-02"]);
@@ -81,7 +74,7 @@ async fn streams_every_page_including_empty_ones() {
     assert_eq!(
         targets,
         [
-            "/api/v4/feeds/proxies/export?limit=2",
+            "/api/v4/feeds/proxies/export?limit=2&cursor=c0",
             "/api/v4/feeds/proxies/export?limit=2&cursor=c1",
             "/api/v4/feeds/proxies/export?limit=2&cursor=c2",
         ]
@@ -96,7 +89,7 @@ async fn a_repeated_cursor_ends_the_stream_with_an_error() {
     })
     .await;
 
-    let mut exports = server.client().proxies().list_exports().into_stream();
+    let mut exports = server.client().proxies().all_exports(None, None);
 
     assert_eq!(exports.next().await.unwrap().unwrap().id, "2026-05-04");
     assert_eq!(exports.next().await.unwrap().unwrap().id, "2026-05-03");
@@ -116,7 +109,7 @@ async fn a_later_page_failure_is_returned_once() {
     })
     .await;
 
-    let mut exports = server.client().proxies().list_exports().into_stream();
+    let mut exports = server.client().proxies().all_exports(None, None);
 
     assert!(exports.next().await.unwrap().is_ok());
     assert!(
@@ -131,7 +124,7 @@ async fn dropping_the_stream_stops_fetching() {
         Server::start(|_, _| json(200, &export_page(&["2026-05-04", "2026-05-03"], Some("c1"))))
             .await;
 
-    let mut exports = server.client().proxies().list_exports().into_stream();
+    let mut exports = server.client().proxies().all_exports(None, None);
     exports.next().await.unwrap().unwrap();
     drop(exports);
 
@@ -172,7 +165,7 @@ async fn export_json_requests_retry_body_read_errors() {
     .await;
     let feed = server.paused_builder().build().unwrap().proxies();
 
-    let page = feed.list_exports().await.unwrap();
+    let page = feed.list_exports(None, None).await.unwrap();
     let meta = feed.export_meta("2026-05-03/7").await.unwrap();
 
     assert_eq!(page.exports[0].id, "2026-05-03/7");

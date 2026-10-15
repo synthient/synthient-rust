@@ -13,15 +13,16 @@ use crate::error::{Error, Result};
 /// The longest stream line buffered while waiting for its newline.
 const MAX_EVENT_SIZE: usize = 16 << 20;
 
-/// A real-time stream of feed events. Create one with
-/// [`Feed::stream`](crate::Feed::stream).
+/// A stream of a feed's real-time events from
+/// [`Feed::stream`](crate::Feed::stream), or of its exports from
+/// [`Feed::all_exports`](crate::Feed::all_exports).
 ///
-/// The server closes each stream cleanly after about 30 minutes, which ends
-/// it. Any other failure, such as a dropped connection or an undecodable
-/// event, is returned once, and the stream then ends. Dropping the stream
-/// closes its connection.
+/// The server closes each event stream cleanly after about 30 minutes, which
+/// ends it. Any other failure, such as a dropped connection, an undecodable
+/// event, or a failed page request, is returned once, and the stream then
+/// ends. Dropping the stream closes its connection or stops fetching pages.
 ///
-/// Read events with [`next`](Self::next), or use the [`Stream`] trait with
+/// Read items with [`next`](Self::next), or use the [`Stream`] trait with
 /// combinators from `futures` or `tokio-stream`.
 pub struct EventStream<T> {
     inner: BoxStream<'static, Result<T>>,
@@ -41,7 +42,11 @@ impl<T: DeserializeOwned + Send + 'static> EventStream<T> {
 }
 
 impl<T> EventStream<T> {
-    /// Returns the next event, or `None` once the stream has ended.
+    pub(crate) fn from_stream(inner: BoxStream<'static, Result<T>>) -> Self {
+        Self { inner }
+    }
+
+    /// Returns the next item, or `None` once the stream has ended.
     pub async fn next(&mut self) -> Option<Result<T>> {
         self.inner.next().await
     }

@@ -5,7 +5,6 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use bytes::Bytes;
-use futures_util::future::BoxFuture;
 use futures_util::stream::{self, BoxStream};
 use futures_util::{Stream, StreamExt};
 use reqwest::header::LOCATION;
@@ -62,27 +61,62 @@ impl<T> Feed<T> {
         }
     }
 
-    /// Lists the feed's exports, newest first. Await the returned
-    /// [`ListExports`] for one page, or call
-    /// [`into_stream`](ListExports::into_stream) to read every export
-    /// across pages.
+    /// Returns one page of the feed's exports, newest first. `limit` sets the
+    /// page size, from 1 to 500, and the API default is 100. Pass a page's
+    /// [`next_cursor`](ExportPage::next_cursor) as `cursor` to fetch the page
+    /// after it, or call [`all_exports`](Self::all_exports) to read every
+    /// export across pages.
     ///
     /// ```no_run
     /// # async fn run(client: synthient::Client) -> Result<(), synthient::Error> {
-    /// let page = client.proxies().list_exports().limit(10).await?;
+    /// let page = client.proxies().list_exports(Some(10), None).await?;
     /// for export in page.exports {
     ///     println!("{} {} rows", export.id, export.row_count);
     /// }
     /// # Ok(())
     /// # }
     /// ```
-    pub fn list_exports(&self) -> ListExports {
-        ListExports {
-            client: self.client.clone(),
-            path: self.path,
-            limit: None,
-            cursor: None,
+    pub async fn list_exports(
+        &self,
+        limit: Option<u32>,
+        cursor: Option<&str>,
+    ) -> Result<ExportPage> {
+        let mut url = self
+            .client
+            .endpoint(self.path.iter().copied().chain(["export"]));
+        if let Some(limit) = limit {
+            url.query_pairs_mut()
+                .append_pair("limit", &limit.to_string());
         }
+        if let Some(cursor) = cursor {
+            url.query_pairs_mut().append_pair("cursor", cursor);
+        }
+        self.client
+            .request_json(Request::get(url, RetryPolicy::Transient))
+            .await
+    }
+
+    /// Returns a stream of every export, newest first, starting at `cursor`
+    /// when it is set. Pages of `limit` exports are fetched lazily as the
+    /// stream is read, and dropping the stream stops fetching. An error is
+    /// returned once and ends the stream.
+    pub fn all_exports(&self, limit: Option<u32>, cursor: Option<&str>) -> ExportStream
+    where
+        T: 'static,
+    {
+        let pages = Pages {
+            feed: self.clone(),
+            limit,
+            cursor: cursor.map(str::to_owned),
+            done: false,
+            seen: HashSet::new(),
+            exports: Vec::new().into_iter(),
+        };
+        let inner = stream::try_unfold(pages, |mut pages| async move {
+            let export = pages.next().await?;
+            Ok(export.map(|export| (export, pages)))
+        });
+        EventStream::from_stream(inner.boxed())
     }
 
     /// Returns the checksum, size, row count, and parquet schema of an
@@ -267,8 +301,8 @@ pub struct ExportPage {
     /// The exports on this page. The API names the field `feeds`.
     #[serde(rename = "feeds")]
     pub exports: Vec<Export>,
-    /// Fetches the next page with [`ListExports::cursor`]. It is `None` on
-    /// the last page.
+    /// The cursor of the next page, for [`Feed::list_exports`] or
+    /// [`Feed::all_exports`]. It is `None` on the last page.
     #[serde(default, deserialize_with = "non_empty")]
     pub next_cursor: Option<String>,
 }
@@ -380,135 +414,46 @@ wire_enum! {
     }
 }
 
-/// An export listing. Await it for one page, or call
-/// [`into_stream`](Self::into_stream) to read every export. Create one with
-/// [`Feed::list_exports`].
-#[derive(Debug, Clone)]
-#[must_use = "an export listing does nothing until it is awaited or streamed"]
-pub struct ListExports {
-    client: Client,
-    path: &'static [&'static str],
+struct Pages<T> {
+    feed: Feed<T>,
     limit: Option<u32>,
     cursor: Option<String>,
-}
-
-impl ListExports {
-    /// Sets the page size, from 1 to 500. The API default is 100.
-    pub fn limit(mut self, limit: u32) -> Self {
-        self.limit = Some(limit);
-        self
-    }
-
-    /// Continues a listing from a previous page's
-    /// [`next_cursor`](ExportPage::next_cursor).
-    pub fn cursor(mut self, cursor: impl Into<String>) -> Self {
-        self.cursor = Some(cursor.into());
-        self
-    }
-
-    /// Returns a stream of every export, newest first. Pages are fetched
-    /// lazily as the stream is read, with the same limit, and dropping the
-    /// stream stops fetching. An error is returned once and ends the stream.
-    pub fn into_stream(self) -> ExportStream {
-        let pages = Pages {
-            next: Some(self),
-            exports: Vec::new().into_iter(),
-            seen: HashSet::new(),
-        };
-        let inner = stream::try_unfold(pages, |mut pages| async move {
-            let export = pages.next().await?;
-            Ok(export.map(|export| (export, pages)))
-        });
-        ExportStream {
-            inner: inner.boxed(),
-        }
-    }
-
-    async fn page(&self) -> Result<ExportPage> {
-        let mut url = self
-            .client
-            .endpoint(self.path.iter().copied().chain(["export"]));
-        if let Some(limit) = self.limit {
-            url.query_pairs_mut()
-                .append_pair("limit", &limit.to_string());
-        }
-        if let Some(cursor) = &self.cursor {
-            url.query_pairs_mut().append_pair("cursor", cursor);
-        }
-        self.client
-            .request_json(Request::get(url, RetryPolicy::Transient))
-            .await
-    }
-}
-
-impl IntoFuture for ListExports {
-    type Output = Result<ExportPage>;
-    type IntoFuture = BoxFuture<'static, Result<ExportPage>>;
-
-    fn into_future(self) -> Self::IntoFuture {
-        Box::pin(async move { self.page().await })
-    }
-}
-
-struct Pages {
-    /// The listing of the next page, or `None` after the last page.
-    next: Option<ListExports>,
-    exports: std::vec::IntoIter<Export>,
+    /// Whether the last page has been fetched.
+    done: bool,
     seen: HashSet<String>,
+    exports: std::vec::IntoIter<Export>,
 }
 
-impl Pages {
+impl<T> Pages<T> {
     async fn next(&mut self) -> Result<Option<Export>> {
         loop {
             if let Some(export) = self.exports.next() {
                 return Ok(Some(export));
             }
-            let Some(listing) = &mut self.next else {
+            if self.done {
                 return Ok(None);
-            };
-            if let Some(cursor) = &listing.cursor {
+            }
+            if let Some(cursor) = &self.cursor {
                 if !self.seen.insert(cursor.clone()) {
                     return Err(Error::Protocol(
                         "export listing returned a repeated cursor".to_owned(),
                     ));
                 }
             }
-            let page = listing.page().await?;
+            let page = self
+                .feed
+                .list_exports(self.limit, self.cursor.as_deref())
+                .await?;
             self.exports = page.exports.into_iter();
-            match page.next_cursor {
-                Some(cursor) => listing.cursor = Some(cursor),
-                None => self.next = None,
-            }
+            self.done = page.next_cursor.is_none();
+            self.cursor = page.next_cursor;
         }
     }
 }
 
-/// A stream of every export of a feed. Create one with
-/// [`ListExports::into_stream`].
-pub struct ExportStream {
-    inner: BoxStream<'static, Result<Export>>,
-}
-
-impl ExportStream {
-    /// Returns the next export, or `None` once every page has been read.
-    pub async fn next(&mut self) -> Option<Result<Export>> {
-        self.inner.next().await
-    }
-}
-
-impl Stream for ExportStream {
-    type Item = Result<Export>;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.inner.poll_next_unpin(cx)
-    }
-}
-
-impl fmt::Debug for ExportStream {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ExportStream").finish_non_exhaustive()
-    }
-}
+/// A stream of every export of a feed, newest first. Create one with
+/// [`Feed::all_exports`].
+pub type ExportStream = EventStream<Export>;
 
 /// The contents of an export's parquet file, read in chunks as they arrive.
 /// Create one with [`Feed::download`]. Dropping it closes the connection.

@@ -16,7 +16,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::new(std::env::var("SYNTHIENT_API_KEY")?)?;
     let feed = client.proxies();
 
-    let mut exports = feed.list_exports().into_stream();
+    let mut exports = feed.all_exports(None, None);
     let mut daily = None;
     while let Some(export) = exports.next().await {
         let export = export?;

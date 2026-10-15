@@ -132,8 +132,8 @@ pub use events::{
     TlsExtension, TorrentEvent, TorrentFile, TorrentPeer,
 };
 pub use feed::{
-    Download, Export, ExportKind, ExportMeta, ExportPage, ExportStream, Feed, ListExports,
-    ParquetColumn, ParquetSchema, ParquetType,
+    Download, Export, ExportKind, ExportMeta, ExportPage, ExportStream, Feed, ParquetColumn,
+    ParquetSchema, ParquetType,
 };
 pub use lookup::{
     ActivityStats, AsnCount, Cadence, CountryCount, Device, DomainEvent, DomainInfo, DomainStats,
