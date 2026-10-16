@@ -13,8 +13,9 @@
 //!
 //! [`Schema::descriptor_set`] can be encoded with
 //! [`prost::Message::encode_to_vec`] for tools such as `grpcurl` and `buf`.
-//! The connection always uses rustls with the platform's trusted
-//! certificates, whichever TLS feature the HTTP client uses.
+//! Unless [`plaintext`](Fetch::plaintext) is set, the connection uses rustls
+//! with the platform's trusted certificates, whichever TLS feature the HTTP
+//! client uses.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;

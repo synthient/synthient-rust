@@ -69,8 +69,9 @@ impl Client {
     ///
     /// # Errors
     ///
-    /// Returns [`Error::InvalidInput`] if the key is empty, or
-    /// [`Error::Http`] if the TLS backend cannot be initialized.
+    /// Returns [`Error::InvalidInput`] if the key is empty or has characters
+    /// that cannot be sent in a header, or [`Error::Http`] if the TLS backend
+    /// cannot be initialized.
     pub fn new(api_key: impl Into<String>) -> Result<Self> {
         Self::builder(api_key).build()
     }
@@ -367,9 +368,10 @@ impl ClientBuilder {
     ///
     /// # Errors
     ///
-    /// Returns [`Error::InvalidInput`] if the API key is empty, or if the
-    /// base URL or User-Agent is invalid, and [`Error::Http`] if the HTTP
-    /// client cannot be built.
+    /// Returns [`Error::InvalidInput`] if the API key is empty or has
+    /// characters that cannot be sent in a header, or if the base URL or
+    /// User-Agent is invalid, and [`Error::Http`] if the HTTP client cannot be
+    /// built.
     pub fn build(self) -> Result<Client> {
         let api_key = self.api_key.trim();
         if api_key.is_empty() {

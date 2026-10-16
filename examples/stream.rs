@@ -29,8 +29,8 @@ async fn print_events(client: &Client) -> synthient::Result<()> {
         let delay = match print_stream(client).await {
             Ok(()) => pause,
             // A client error, such as a key without the PROXY_FIREHOSE scope
-            // or a spent request budget, fails the same way on every attempt
-            // unless the server says when to retry.
+            // or a 429 for too many open streams, fails the same way on every
+            // attempt unless the server says when to retry.
             Err(Error::Api(err)) if err.status.is_client_error() => {
                 let Some(retry_after) = err.retry_after else {
                     return Err(Error::Api(err));
