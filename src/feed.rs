@@ -182,7 +182,7 @@ impl<T> Feed<T> {
 
 impl<T: DeserializeOwned + Send + 'static> Feed<T> {
     /// Opens the feed's real-time event stream. Each call opens a new
-    /// connection, which the server closes cleanly after about 30 minutes.
+    /// connection, which the server closes cleanly after up to 30 minutes.
     /// The API has no resume cursor, so events sent between connections are
     /// missed. Call `stream` again to reconnect.
     ///

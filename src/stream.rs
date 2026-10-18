@@ -17,7 +17,7 @@ const MAX_EVENT_SIZE: usize = 16 << 20;
 /// [`Feed::stream`](crate::Feed::stream), or of its exports from
 /// [`Feed::all_exports`](crate::Feed::all_exports).
 ///
-/// The server closes each event stream cleanly after about 30 minutes, which
+/// The server closes each event stream cleanly after up to 30 minutes, which
 /// ends it. Any other failure, such as a dropped connection, an undecodable
 /// event, or a failed page request, is returned once, and the stream then
 /// ends. Dropping the stream closes its connection or stops fetching pages.
