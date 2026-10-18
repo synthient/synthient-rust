@@ -12,7 +12,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let schema = match grpcschema::fetch(std::env::var("SYNTHIENT_API_KEY")?).await {
         Ok(schema) => schema,
         Err(err) => match err.explain() {
-            Some(explanation) => return Err(format!("{explanation} ({err})").into()),
+            Some(explanation) => return Err(format!("{explanation} {err}").into()),
             None => return Err(err.into()),
         },
     };
