@@ -72,6 +72,13 @@ cargo add synthient --no-default-features --features native-tls
 
 Rust 1.85 or later and a Tokio runtime with its time driver enabled, which `#[tokio::main]` provides.
 
+The newest releases of some dependencies need Rust 1.88. On Rust 1.85 to 1.87, Cargo picks releases your Rust version supports only with its MSRV-aware resolver, which edition 2024 packages use by default. In an edition 2021 package, turn it on in the `[package]` table of Cargo.toml, or in `[workspace]` for a workspace:
+
+```toml
+[package]
+resolver = "3"
+```
+
 ## API Keys
 
 Every request to the HTTP API needs a Synthient API key. Keys are issued from the Synthient dashboard; if you don't have one yet, [contact us](mailto:contact@synthient.com). Each key carries scopes that decide what it can call. `BASIC` covers the lookups and `account`, and each feed has one scope for its real-time stream and one for its exports, listed under [Feeds](#feeds). See [Authentication](https://docs.synthient.com/authentication) for how scopes work.
