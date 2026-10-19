@@ -52,17 +52,15 @@ cargo add synthient
 cargo add tokio --features full
 ```
 
-The client is asynchronous and runs on Tokio. The examples below use `#[tokio::main]`, and the download example writes with Tokio's file API, which the `full` feature includes.
+The client is asynchronous and runs on Tokio, whose `full` feature covers the examples below. The crate has these features:
 
-The crate has these features:
+| Feature      | Default | Description                               |
+| ------------ | ------- | ----------------------------------------- |
+| `rustls`     | Yes     | TLS through rustls                        |
+| `native-tls` | No      | TLS through the platform's native library |
+| `grpcschema` | No      | The [gRPC schema fetcher](#grpc-schema)   |
 
-| Feature      | Default | Description                                                                           |
-| ------------ | ------- | ------------------------------------------------------------------------------------- |
-| `rustls`     | Yes     | TLS through rustls                                                                    |
-| `native-tls` | No      | TLS through the platform's native library                                             |
-| `grpcschema` | No      | The [`grpcschema`](#grpc-schema) module, which fetches the gRPC API's protobuf schema |
-
-To use the platform's TLS library instead of rustls, turn off the default features:
+To use the platform's TLS library, turn off the default features:
 
 ```sh
 cargo add synthient --no-default-features --features native-tls
@@ -70,9 +68,9 @@ cargo add synthient --no-default-features --features native-tls
 
 ## Requirements
 
-Rust 1.85 or later and a Tokio runtime with its time driver enabled, which `#[tokio::main]` provides.
+Rust 1.85 or later, and a Tokio runtime with its time driver enabled, which `#[tokio::main]` provides.
 
-The newest releases of some dependencies need Rust 1.88. On Rust 1.85 to 1.87, Cargo picks releases your Rust version supports only with its MSRV-aware resolver, which edition 2024 packages use by default. In an edition 2021 package, turn it on in the `[package]` table of Cargo.toml, or in `[workspace]` for a workspace:
+The newest releases of some dependencies need Rust 1.88, so Rust 1.85 to 1.87 needs Cargo's MSRV-aware resolver. Edition 2024 packages use it by default. In an edition 2021 package, turn it on in `[package]`, or in `[workspace]` for a workspace:
 
 ```toml
 [package]
@@ -81,13 +79,15 @@ resolver = "3"
 
 ## API Keys
 
-Every request to the HTTP API needs a Synthient API key. Keys are issued from the Synthient dashboard; if you don't have one yet, [contact us](mailto:contact@synthient.com). Each key carries scopes that decide what it can call. `BASIC` covers the lookups and `account`, and each feed has one scope for its real-time stream and one for its exports, listed under [Feeds](#feeds). See [Authentication](https://docs.synthient.com/authentication) for how scopes work.
+Every request needs a Synthient API key. Keys are issued from the Synthient dashboard; if you don't have one, [contact us](mailto:contact@synthient.com). A key's scopes decide what it can call: `BASIC` covers the lookups and `account`, and each feed has its own scopes, listed under [Feeds](#feeds).
 
-If a request fails even though you are sending a key, it is usually one of these:
+If a request fails even though you are sending a key:
 
-- **401 Unauthorized**: the key is malformed, unknown, or revoked. Check that it was loaded from the environment and isn't truncated.
-- **402 Payment Required**: the team is out of lookup credits. `account` reports the remaining balance and when it resets.
-- **403 Forbidden**: the key lacks the scope for that endpoint or feed. `account` lists the key's scopes.
+- **401 Unauthorized**: the key is malformed, unknown, or revoked.
+- **402 Payment Required**: the team is out of lookup credits.
+- **403 Forbidden**: the key lacks the scope for that endpoint or feed.
+
+`account` shows the key's scopes and the team's remaining credits.
 
 ## Authentication
 
@@ -97,19 +97,19 @@ This SDK supports the following security scheme:
 | --------- | ------- | ------------------ |
 | `api_key` | API key | `x-api-key` header |
 
-Pass the key to `Client::new`, or to `Client::builder` to change other settings. The client doesn't read the key from the environment itself, so load it from an environment variable or a secret manager rather than writing it into your code:
+Pass the key to `Client::new`, reading it from the environment or a secret manager:
 
 ```rust
 let client = synthient::Client::new(std::env::var("SYNTHIENT_API_KEY")?)?;
 ```
 
-`Client::new` returns `Error::InvalidInput` for an empty key or one that can't be sent in a header. It makes no network calls, so an invalid key shows up as a 401 on the first request. The key is sent only to the Synthient API, never to the storage host that serves export downloads, and the client's `Debug` output never shows it.
+`Client::new` makes no network calls. To check a key, call `account`, which costs no credits.
 
 ## SDK Example Usage
 
 ### Look up an IP address
 
-Get the network, location, and risk intelligence for an IPv4 or IPv6 address. Each lookup costs one credit, and failed lookups are free.
+Get the network, location, and risk intelligence for an IPv4 or IPv6 address. Each lookup costs one credit; failed lookups are free.
 
 ```rust
 use std::net::Ipv4Addr;
@@ -126,11 +126,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-`network`, `location`, and `intelligence` are `None` when the API has no data for that section. Create one client and reuse it: cloning it is cheap, and clones share one connection pool. The examples below reuse `client`. Runnable programs are in [examples](https://github.com/synthient/synthient-rust/tree/main/examples), for example `cargo run --example lookup_ip 8.8.8.8`.
+`network`, `location`, and `intelligence` are `None` when the API has no data for them. Reuse one client; clones are cheap and share a connection pool. The examples below reuse `client`, and runnable programs are in [examples](https://github.com/synthient/synthient-rust/tree/main/examples).
 
 ### Look up many IP addresses
 
-Look up as many as 1000 addresses in one request, billed at `ceil(n * 0.9)` credits for the `n` distinct addresses looked up. Private and reserved addresses are skipped and duplicates collapse into one result, so match results by `ip` rather than by index.
+Look up as many as 1000 addresses in one request for `ceil(n * 0.9)` credits. Private and reserved addresses are skipped and duplicates are merged, so match results by `ip`.
 
 ```rust
 let ips = ["8.8.8.8".parse()?, "1.1.1.1".parse()?];
@@ -141,11 +141,9 @@ for result in client.lookup_ips(&ips).await? {
 }
 ```
 
-More than 1000 addresses return `Error::InvalidInput` without a request.
-
 ### Look up a domain
 
-Get the honeypot traffic observed for a domain, with its most recent events. A domain that has never been observed returns an inactive status and zero counts rather than an error. Each lookup costs one credit.
+Get the honeypot traffic observed for a domain and its most recent events. Each lookup costs one credit.
 
 ```rust
 let domain = client.lookup_domain("example.com", Some(10)).await?;
@@ -158,11 +156,11 @@ for event in &domain.recent_events {
 }
 ```
 
-The second argument caps the recent events returned, from 1 to 1000. `None` uses the API default of 50.
+The second argument caps the recent events, from 1 to 1000; `None` uses the default of 50.
 
 ### Check your account
 
-Get the account that owns the API key, with the key's scopes and the team's remaining lookup credits. It costs no credits.
+Get the key's account, scopes, and remaining lookup credits, at no cost.
 
 ```rust
 let account = client.account().await?;
@@ -182,7 +180,7 @@ println!(
 - [`lookup_ip`](https://docs.rs/synthient/latest/synthient/struct.Client.html#method.lookup_ip) - Look up an IPv4 or IPv6 address
 - [`lookup_ips`](https://docs.rs/synthient/latest/synthient/struct.Client.html#method.lookup_ips) - Look up as many as 1000 addresses in one request
 - [`lookup_domain`](https://docs.rs/synthient/latest/synthient/struct.Client.html#method.lookup_domain) - Look up the honeypot traffic observed for a domain
-- [`account`](https://docs.rs/synthient/latest/synthient/struct.Client.html#method.account) - Get the account that owns the API key, the key's scopes, and the team's remaining lookup credits
+- [`account`](https://docs.rs/synthient/latest/synthient/struct.Client.html#method.account) - Get the key's account, scopes, and remaining lookup credits
 - [`health`](https://docs.rs/synthient/latest/synthient/struct.Client.html#method.health) - Check that the API and its dependencies are healthy
 
 ### [Feeds](https://docs.rs/synthient/latest/synthient/struct.Feed.html)
@@ -196,22 +194,22 @@ Each feed comes from a client method, such as `client.proxies()`, and has the sa
 - [`download`](https://docs.rs/synthient/latest/synthient/struct.Feed.html#method.download) - Download an export's Parquet file
 - [`download_url`](https://docs.rs/synthient/latest/synthient/struct.Feed.html#method.download_url) - Get a presigned URL for an export's Parquet file, valid for 24 hours
 
-| Method          | Data                                          | Event type         | Stream scope            | Export scope          |
-| --------------- | --------------------------------------------- | ------------------ | ----------------------- | --------------------- |
-| `proxies`       | Residential, mobile, and datacenter proxies   | `ProxyEvent`       | `PROXY_FIREHOSE`        | `PROXY_FEEDS`         |
-| `anonymizers`   | VPN and anonymizer IP ranges                  | `AnonymizerEvent`  | `ANONYMIZERS_STREAM`    | `ANONYMIZERS_FEED`    |
-| `torrents`      | BitTorrent DHT and tracker peers              | `TorrentEvent`     | `TORRENTS_STREAM`       | `TORRENTS_FEED`       |
-| `ja4t`          | JA4T TCP fingerprints                         | `Ja4tEvent`        | `JA4T_STREAM`           | `JA4T_FEED`           |
-| `helios_http`   | Helios honeypot HTTP requests                 | `HeliosHttpEvent`  | `HONEYPOT_HTTP_STREAM`  | `HONEYPOT_HTTP_FEED`  |
-| `helios_https`  | Helios honeypot TLS ClientHellos              | `HeliosHttpsEvent` | `HONEYPOT_HTTPS_STREAM` | `HONEYPOT_HTTPS_FEED` |
-| `helios_dns`    | Helios honeypot tunnel destinations           | `HeliosDnsEvent`   | `HONEYPOT_DNS_STREAM`   | `HONEYPOT_DNS_FEED`   |
-| `helios_adb`    | Helios honeypot Android Debug Bridge commands | `HeliosAdbEvent`   | `HONEYPOT_ADB_STREAM`   | `HONEYPOT_ADB_FEED`   |
+| Method         | Data                                          | Event type         | Stream scope            | Export scope          |
+| -------------- | --------------------------------------------- | ------------------ | ----------------------- | --------------------- |
+| `proxies`      | Residential, mobile, and datacenter proxies   | `ProxyEvent`       | `PROXY_FIREHOSE`        | `PROXY_FEEDS`         |
+| `anonymizers`  | VPN and anonymizer IP ranges                  | `AnonymizerEvent`  | `ANONYMIZERS_STREAM`    | `ANONYMIZERS_FEED`    |
+| `torrents`     | BitTorrent DHT and tracker peers              | `TorrentEvent`     | `TORRENTS_STREAM`       | `TORRENTS_FEED`       |
+| `ja4t`         | JA4T TCP fingerprints                         | `Ja4tEvent`        | `JA4T_STREAM`           | `JA4T_FEED`           |
+| `helios_http`  | Helios honeypot HTTP requests                 | `HeliosHttpEvent`  | `HONEYPOT_HTTP_STREAM`  | `HONEYPOT_HTTP_FEED`  |
+| `helios_https` | Helios honeypot TLS ClientHellos              | `HeliosHttpsEvent` | `HONEYPOT_HTTPS_STREAM` | `HONEYPOT_HTTPS_FEED` |
+| `helios_dns`   | Helios honeypot tunnel destinations           | `HeliosDnsEvent`   | `HONEYPOT_DNS_STREAM`   | `HONEYPOT_DNS_FEED`   |
+| `helios_adb`   | Helios honeypot Android Debug Bridge commands | `HeliosAdbEvent`   | `HONEYPOT_ADB_STREAM`   | `HONEYPOT_ADB_FEED`   |
 
 </details>
 
 ## Streaming
 
-`stream` opens a connection to a feed's real-time events and returns an [`EventStream`](https://docs.rs/synthient/latest/synthient/struct.EventStream.html). Read it with `next`, or through the `Stream` trait with the combinators from `futures` or `tokio-stream`. Dropping it closes the connection. The server keeps a stream open for up to 30 minutes and then closes it, which ends the stream with `None`. The API has no resume cursor, so call `stream` again to reconnect:
+`stream` opens a connection to a feed's real-time events and returns an [`EventStream`](https://docs.rs/synthient/latest/synthient/struct.EventStream.html). Read it with `next` or as a `Stream`, and drop it to close the connection:
 
 ```rust
 use synthient::Error;
@@ -237,21 +235,21 @@ loop {
         }
         Err(err) => {
             eprintln!("proxy stream: {err}");
-            // Pause after a failure so a failing stream doesn't reconnect
-            // in a tight loop.
+            // Avoid reconnecting in a tight loop.
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
     }
 }
 ```
 
-The loop stops on a 401 or 403, because reconnecting can't fix a rejected key or a missing scope. Other failures, such as a dropped connection or an event that doesn't decode, are returned once and end the stream. After a failure, the loop waits 2 seconds before reconnecting; after the server's routine close, it reconnects at once. A 429 `Error::Api` without `retry_after` means the key already has too many open streams.
-
-Every field of a proxy, anonymizer, torrent, or JA4T event is an `Option`, because the API may omit any of them. Helios events require their core fields: `timestamp`, `tunnel_id`, `domain`, `port`, `protocol`, and `meta` on HTTP, HTTPS, and DNS events, and `session`, `sequential_id`, `command`, and `hash` on ADB events. An event that lacks one returns `Error::Decode`, which ends the stream like any other failure.
+- The server closes each stream after up to 30 minutes. That ends the stream with `None`, and the loop reconnects at once.
+- A 401 or 403 stops the loop, because reconnecting can't fix a rejected key or a missing scope.
+- Any other failure ends the stream, and the loop waits 2 seconds before reconnecting.
+- Events sent while disconnected are missed. The API has no resume cursor.
 
 ## Pagination
 
-`list_exports` returns one page of a feed's exports, newest first. Its first argument is the page size, from 1 to 500, and `None` uses the API default of 100:
+`list_exports` returns one page of a feed's exports, newest first. Its first argument is the page size, from 1 to 500; `None` uses the default of 100. Pass `page.next_cursor.as_deref()` as the second to get the next page; it is `None` on the last one.
 
 ```rust
 let page = client.proxies().list_exports(Some(50), None).await?;
@@ -260,7 +258,7 @@ for export in &page.exports {
 }
 ```
 
-To get the next page, pass `page.next_cursor.as_deref()` as the second argument. It is `None` on the last page. `all_exports` does the paging for you. It returns a stream that fetches pages as you read it and stops fetching when you drop it:
+`all_exports` returns a stream that fetches the pages for you as you read it:
 
 ```rust
 let mut exports = client.proxies().all_exports(None, None);
@@ -270,11 +268,11 @@ while let Some(export) = exports.next().await {
 }
 ```
 
-On the first page, the newest hourly export has the ID `"latest"`, a moving alias for the freshest export. To keep a stable ID, build it from the export's `date` and `hour`, such as `"2026-10-14/21"`.
+On the first page, the newest hourly export has the ID `"latest"`, a moving alias for the freshest export. Its `date` and `hour` give its stable ID, such as `"2026-10-14/21"`.
 
 ## Downloads
 
-Exports are Parquet files. Identify one by the `id` of an `Export` from a listing, by `"latest"` for the freshest one, or by a UTC day as `"YYYY-MM-DD"` or a UTC hour as `"YYYY-MM-DD/H"`, where a zero-padded hour such as `"2026-10-14/05"` also works. `download` returns a [`Download`](https://docs.rs/synthient/latest/synthient/struct.Download.html), which yields the file in chunks as they arrive:
+Exports are Parquet files. `download` returns a [`Download`](https://docs.rs/synthient/latest/synthient/struct.Download.html), which yields the file in chunks as they arrive:
 
 ```rust
 use tokio::io::AsyncWriteExt;
@@ -287,20 +285,23 @@ while let Some(chunk) = download.next().await {
 file.flush().await?;
 ```
 
-The file comes from a presigned storage URL that is requested without your API key. `export_meta` returns the SHA-256 checksum to verify it against. Ask both calls for the same stable ID, because `"latest"` can move to a newer export between them. `download_url` returns the presigned URL itself for tools that read Parquet over HTTPS. The URL grants access without a key for 24 hours, so treat it as a secret.
-
-An ID in any other form returns `Error::InvalidInput` without a request. An hourly export is available until its day's daily export is rolled up, shortly after 00:30 UTC the next day. After that, requests for the hour return a 400. While a daily export is being rolled up, requests for it return a 404 with `retry_after` set.
+- Name an export by its `id` from a listing, by `"latest"`, or by a UTC day as `"YYYY-MM-DD"` or hour as `"YYYY-MM-DD/H"`.
+- `export_meta` returns the file's SHA-256 checksum. Use a fixed ID for both calls, because `"latest"` can move between them.
+- `download_url` returns a presigned URL that works without a key for 24 hours, so treat it as a secret. Your API key is never sent to the storage host.
+- Hourly exports roll into the daily export shortly after 00:30 UTC the next day. After that, the hour returns a 400.
 
 ## Retries
 
-The client retries a failed request up to twice by default, backing off exponentially with jitter and honoring `Retry-After`:
+The client retries a failed request up to twice, backing off exponentially with jitter and honoring `Retry-After`:
 
-- Account and feed requests are retried on 500, 502, 503, and 504 responses, on transport errors, and on 429 responses that carry `Retry-After`. A download's request to the storage host is not retried, and neither is a failure while reading a stream or download.
-- Billed lookups (`lookup_ip`, `lookup_ips`, and `lookup_domain`) are retried only on 429 responses that carry `Retry-After`, which the rate limiter returns before doing any work, so a lookup is never charged twice. `health` is retried the same way, so an unhealthy API is reported at once.
+| Requests                    | Retried on                                                                                   |
+| --------------------------- | -------------------------------------------------------------------------------------------- |
+| Account and feed requests   | 500, 502, 503, and 504, transport errors, and 429 with `Retry-After`                         |
+| Billed lookups and `health` | Only 429 with `Retry-After`, which comes before any work, so a lookup is never charged twice |
 
-A 429 without `Retry-After` means the key's monthly request budget is spent or it has too many open streams, so it is returned without a retry. A `Retry-After` longer than a minute is returned to you instead of waited out. When the client has a `timeout`, a retry whose wait, from backoff or `Retry-After`, would outlast it is skipped, so you get the last response or error rather than `Error::Timeout`. The SDK turns off reqwest's own retries, so the transport never resends a request.
+A 429 without `Retry-After` means the monthly request budget is spent or too many streams are open, so it is returned at once. Downloads from the storage host are never retried.
 
-To change the number of retries, set `max_retries` on the builder. Zero disables retries:
+Set the number of retries with `max_retries` on `Client::builder`. Zero disables them:
 
 ```rust
 let client = synthient::Client::builder(std::env::var("SYNTHIENT_API_KEY")?)
@@ -310,7 +311,7 @@ let client = synthient::Client::builder(std::env::var("SYNTHIENT_API_KEY")?)
 
 ## Timeouts
 
-By default, connecting gives up after 30 seconds and a read that stalls for 60 seconds fails. Streams never hit the read timeout, because the server sends a keepalive line every 15 seconds. There is no overall limit, because streams and downloads are long-lived. To set one, use `timeout` on the builder:
+By default, connecting gives up after 30 seconds and a read that stalls for 60 seconds fails. There is no overall timeout, because streams and downloads are long-lived. Set one with `timeout` on the builder:
 
 ```rust
 let client = synthient::Client::builder(std::env::var("SYNTHIENT_API_KEY")?)
@@ -318,23 +319,23 @@ let client = synthient::Client::builder(std::env::var("SYNTHIENT_API_KEY")?)
     .build()?;
 ```
 
-The timeout covers every attempt of an operation and the waits between them. For streams and downloads, it covers opening them but not reading them. An operation that runs out of time returns `Error::Timeout`. To bound a single call instead, wrap it in `tokio::time::timeout`, or drop its future to cancel it.
+It covers every attempt and the waits between them. For streams and downloads, it covers only opening them. An operation that runs out of time returns `Error::Timeout`. To bound a single call, wrap it in `tokio::time::timeout`.
 
 ## Error Handling
 
-A request that fails with a non-success HTTP status returns [`Error::Api`](https://docs.rs/synthient/latest/synthient/enum.Error.html#variant.Api), which holds an [`ApiError`](https://docs.rs/synthient/latest/synthient/struct.ApiError.html) with the following fields:
+A request that fails with a non-success status returns [`Error::Api`](https://docs.rs/synthient/latest/synthient/enum.Error.html#variant.Api), which holds an [`ApiError`](https://docs.rs/synthient/latest/synthient/struct.ApiError.html):
 
-| Field          | Type                            | Description                                                                                      |
-| -------------- | ------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `status`       | `StatusCode`                    | HTTP response status code, such as `404`                                                         |
-| `problem_type` | `Option<String>`                | URI identifying the problem type, such as `https://docs.synthient.com/errors/validation-failed` |
-| `title`        | `Option<String>`                | Short summary of the problem type                                                                |
-| `detail`       | `Option<String>`                | Explanation of this occurrence. For a plain-text error, the response body                        |
-| `errors`       | `BTreeMap<String, Vec<String>>` | Validation messages by request field                                                             |
-| `request_id`   | `Option<String>`                | Request ID to give Synthient support                                                             |
-| `retry_after`  | `Option<Duration>`              | How long the server asked you to wait before retrying                                            |
+| Field          | Type                            | Description                           |
+| -------------- | ------------------------------- | ------------------------------------- |
+| `status`       | `StatusCode`                    | HTTP status code, such as `404`       |
+| `problem_type` | `Option<String>`                | URI identifying the problem type      |
+| `title`        | `Option<String>`                | Short summary of the problem type     |
+| `detail`       | `Option<String>`                | Explanation of this occurrence        |
+| `errors`       | `BTreeMap<String, Vec<String>>` | Validation messages by request field  |
+| `request_id`   | `Option<String>`                | Request ID to give Synthient support  |
+| `retry_after`  | `Option<Duration>`              | How long the server asked you to wait |
 
-Its `Display` output contains only the HTTP status. The other fields hold untrusted server data that can be sensitive, so log them deliberately.
+Its `Display` output contains only the HTTP status, so it is safe to log. The fields hold untrusted server data.
 
 ### Example
 
@@ -361,33 +362,31 @@ match client.lookup_ip(Ipv4Addr::new(8, 8, 8, 8)).await {
 }
 ```
 
-`synthient::StatusCode` is reqwest's status code type, re-exported.
-
 ### Error Types
 
 [`Error`](https://docs.rs/synthient/latest/synthient/enum.Error.html) is `#[non_exhaustive]`, so a `match` on it needs a catch-all arm. Its variants:
 
-- [`Api`](https://docs.rs/synthient/latest/synthient/enum.Error.html#variant.Api): the API, or the storage host serving a download, returned a non-success status.
-- [`InvalidInput`](https://docs.rs/synthient/latest/synthient/enum.Error.html#variant.InvalidInput): an argument or setting was rejected before anything was sent, such as an empty API key, more than 1000 addresses, or a malformed export ID.
-- [`Http`](https://docs.rs/synthient/latest/synthient/enum.Error.html#variant.Http): the HTTP client could not be built, the request could not be sent, or the response could not be read. URLs are removed from these errors, because download URLs grant access to an export.
-- [`Timeout`](https://docs.rs/synthient/latest/synthient/enum.Error.html#variant.Timeout): the operation took longer than the client's `timeout`.
+- [`Api`](https://docs.rs/synthient/latest/synthient/enum.Error.html#variant.Api): the API, or the storage host during `download`, returned a non-success status.
+- [`InvalidInput`](https://docs.rs/synthient/latest/synthient/enum.Error.html#variant.InvalidInput): an argument or setting, such as an empty API key, was rejected before any request is sent.
+- [`Http`](https://docs.rs/synthient/latest/synthient/enum.Error.html#variant.Http): the HTTP client could not be built, the request could not be sent, or the response could not be read.
+- [`Timeout`](https://docs.rs/synthient/latest/synthient/enum.Error.html#variant.Timeout): the operation outlasted the client's `timeout`.
 - [`Decode`](https://docs.rs/synthient/latest/synthient/enum.Error.html#variant.Decode): a response or stream event was not the JSON the API documents.
-- [`Protocol`](https://docs.rs/synthient/latest/synthient/enum.Error.html#variant.Protocol): a response broke the API's contract, such as an oversized body or a repeated pagination cursor.
+- [`Protocol`](https://docs.rs/synthient/latest/synthient/enum.Error.html#variant.Protocol): a response broke the API's contract, such as an oversized body.
 
 <details><summary>Status codes</summary>
 
 <br />
 
-| Status | Meaning                                                                                                            |
-| ------ | ------------------------------------------------------------------------------------------------------------------ |
-| 400    | The request is invalid, such as asking for an hourly export that has been rolled up                                |
-| 401    | The API key is malformed, unknown, or revoked                                                                      |
-| 402    | The team is out of lookup credits                                                                                  |
-| 403    | The key lacks the scope for the endpoint or feed                                                                   |
-| 404    | The export does not exist, or a daily export is still being rolled up and `retry_after` is set                     |
-| 422    | The input is invalid, such as a private or reserved address, a malformed domain, or a batch with no usable address |
-| 429    | With `retry_after`, the rate limit was hit. Without it, the request budget is spent or too many streams are open   |
-| 5xx    | The server failed. Account and feed requests are retried on 500, 502, 503, and 504                                 |
+| Status | Meaning                                                                                          |
+| ------ | ------------------------------------------------------------------------------------------------ |
+| 400    | The request is invalid, such as an hourly export that was rolled up                              |
+| 401    | The API key is malformed, unknown, or revoked                                                    |
+| 402    | The team is out of lookup credits                                                                |
+| 403    | The key lacks the scope for the endpoint or feed                                                 |
+| 404    | The export doesn't exist, or a daily export is still rolling up (`retry_after` is set)           |
+| 422    | The input is invalid, such as a private address or a malformed domain                            |
+| 429    | Rate limited if `retry_after` is set; otherwise the budget is spent or too many streams are open |
+| 5xx    | The server failed                                                                                |
 
 </details>
 
@@ -395,7 +394,7 @@ match client.lookup_ip(Ipv4Addr::new(8, 8, 8, 8)).await {
 
 ### Override Server URL Per-Client
 
-The default server is `https://api.synthient.com/api/v4`, also available as `synthient::DEFAULT_BASE_URL`. To send requests elsewhere, such as through a gateway or to a mock server in tests, set `base_url` on the builder. The URL includes the version path:
+The default server is `https://api.synthient.com/api/v4`. Use `base_url` on the builder to send requests elsewhere, such as a mock server in tests:
 
 ```rust
 let client = synthient::Client::builder(std::env::var("SYNTHIENT_API_KEY")?)
@@ -403,11 +402,9 @@ let client = synthient::Client::builder(std::env::var("SYNTHIENT_API_KEY")?)
     .build()?;
 ```
 
-`build` returns `Error::InvalidInput` for a URL that isn't http or https, or that has credentials, a query, or a fragment.
-
 ## Custom HTTP Client
 
-The client sends requests with [reqwest](https://docs.rs/reqwest), which already honors the `HTTP_PROXY` and `HTTPS_PROXY` environment variables and the macOS and Windows proxy settings. To configure it further, for example to route requests through a specific proxy, pass a `reqwest::ClientBuilder` to `http_client`. The crate re-exports reqwest as `synthient::reqwest`, so the versions always match:
+Pass a [reqwest](https://docs.rs/reqwest) `ClientBuilder` to `http_client`, for example to use a specific proxy. Build it from the re-exported `synthient::reqwest`, so the versions match:
 
 ```rust
 use synthient::reqwest;
@@ -422,13 +419,16 @@ let client = synthient::Client::builder(std::env::var("SYNTHIENT_API_KEY")?)
     .build()?;
 ```
 
-A builder you pass replaces the default one, so set the connect and read timeouts yourself, as above. Don't set a total `timeout` on it, which would also cut off streams and downloads. The SDK takes a builder rather than a client so it can turn off reqwest's redirects, which keeps the API key away from the storage host, and its retries, which keeps a billed lookup from being sent twice.
+- Set the connect and read timeouts yourself, as above, because your builder replaces the defaults.
+- Don't set a total `timeout` on it. It would also cut off streams and downloads.
+- The SDK turns off reqwest's redirects and retries on your builder, so the API key never reaches the storage host and a billed lookup is never sent twice.
+- The default client already honors `HTTP_PROXY`, `HTTPS_PROXY`, and the macOS and Windows proxy settings.
 
-To identify your application, `user_agent("my-app/1.2")` on the builder appends a product token to the `User-Agent` header.
+`user_agent("my-app/1.2")` on the builder adds your product token to the `User-Agent` header.
 
 ## Debugging
 
-`on_response` on the builder calls a function after every API response's headers arrive, including each retry, page, stream handshake, and error response. It receives a [`ResponseMetadata`](https://docs.rs/synthient/latest/synthient/struct.ResponseMetadata.html) with the status, the request ID to give Synthient support, the operation's rate limit, and a copy of the response headers:
+`on_response` on the builder calls a function after every API response, including retries, pages, and stream handshakes, with a [`ResponseMetadata`](https://docs.rs/synthient/latest/synthient/struct.ResponseMetadata.html) holding the status, request ID, rate limit, and headers:
 
 ```rust
 let client = synthient::Client::builder(std::env::var("SYNTHIENT_API_KEY")?)
@@ -444,14 +444,14 @@ let client = synthient::Client::builder(std::env::var("SYNTHIENT_API_KEY")?)
     .build()?;
 ```
 
-The hook runs synchronously, before the response body is read, so keep it fast. It must be `Send + Sync`, because requests can run on many tasks at once. Storage download responses are not passed to it.
+The hook runs synchronously, before the response body is read, so keep it fast.
 
 > [!WARNING]
 > Response headers can contain secrets, such as presigned download URLs. Avoid logging `meta.headers` in production.
 
 ## gRPC Schema
 
-The [`grpcschema`](https://docs.rs/synthient/latest/synthient/grpcschema/index.html) module fetches the protobuf schema of the [Synthient gRPC API](https://docs.synthient.com/grpc) through gRPC server reflection. It needs the `grpcschema` feature:
+The [`grpcschema`](https://docs.rs/synthient/latest/synthient/grpcschema/index.html) module fetches the protobuf schema of the [Synthient gRPC API](https://docs.synthient.com/grpc) through server reflection. It needs the `grpcschema` feature:
 
 ```sh
 cargo add synthient --features grpcschema
@@ -470,13 +470,13 @@ for file in &schema.descriptor_set.file {
 }
 ```
 
-`fetch` returns a request that runs when awaited. Before awaiting it, you can set `endpoint`, `symbols`, `timeout` for the whole fetch (30 seconds by default), or `plaintext` to skip TLS for a local development server. `schema.descriptor_set` is a `prost_types::FileDescriptorSet` with each file after the files it imports, and the module re-exports `prost` and `prost_types` for working with it. `SchemaError::explain` describes common gRPC errors in plain language, and returns `None` for the rest. Unless `plaintext` is set, the connection uses rustls with the platform's trusted certificates, whichever TLS feature the HTTP client uses.
+`schema.descriptor_set` is a `prost_types::FileDescriptorSet`, and the module re-exports `prost` and `prost_types`. `SchemaError::explain` describes common gRPC errors in plain language.
 
 # Development
 
 ## Maturity
 
-This SDK follows [Semantic Versioning](https://semver.org). Breaking changes to its public API ship only in a new major version. Response types and enums are `#[non_exhaustive]`, and enums decode values this version doesn't know into an `Unknown` variant, so new API fields and values can arrive in minor versions without breaking your code.
+This SDK follows [Semantic Versioning](https://semver.org). Breaking changes ship only in a new major version. Response types and enums are `#[non_exhaustive]`, and unknown enum values decode to `Unknown`, so new API fields and values can arrive in minor versions.
 
 ## Contributions
 
