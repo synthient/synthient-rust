@@ -106,6 +106,21 @@ async fn an_oversized_event_is_an_error() {
 }
 
 #[tokio::test]
+async fn an_oversized_complete_event_is_an_error() {
+    let (server, events) = ndjson_server().await;
+    let mut event = b"{\"provider\":\"".to_vec();
+    event.resize((16 << 20) - 1, b'x');
+    event.extend_from_slice(b"\"}\n");
+    events.send(event).unwrap();
+    drop(events);
+
+    let mut stream = server.client().proxies().stream().await.unwrap();
+
+    assert!(matches!(stream.next().await, Some(Err(Error::Protocol(_)))));
+    assert!(stream.next().await.is_none());
+}
+
+#[tokio::test]
 async fn a_dropped_connection_is_an_error() {
     let server = Server::start(|_, _| {
         let mut bytes = head(

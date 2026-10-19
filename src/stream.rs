@@ -75,6 +75,11 @@ async fn next_event<T: DeserializeOwned>(
 ) -> Result<Option<T>> {
     loop {
         if let Some(line) = lines.next_line() {
+            if line.len() - 1 > MAX_EVENT_SIZE {
+                return Err(Error::Protocol(format!(
+                    "stream event exceeds {MAX_EVENT_SIZE} bytes"
+                )));
+            }
             if line.trim_ascii().is_empty() {
                 continue;
             }
