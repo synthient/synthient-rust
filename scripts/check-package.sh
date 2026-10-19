@@ -23,7 +23,7 @@ cp -R consumer-test/Cargo.toml consumer-test/src "$work/consumer/"
 
 cd "$work/consumer"
 # Builds under the target directory, so CI caches keep compiled
-# dependencies. The consumer still resolves them without a lockfile.
+# dependencies.
 export CARGO_TARGET_DIR="$target/consumer"
 cargo run --quiet
 cargo run --quiet --features grpcschema

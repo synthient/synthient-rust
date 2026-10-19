@@ -17,10 +17,10 @@ const MAX_EVENT_SIZE: usize = 16 << 20;
 /// [`Feed::stream`](crate::Feed::stream), or of its exports from
 /// [`Feed::all_exports`](crate::Feed::all_exports).
 ///
-/// The server closes each event stream cleanly after up to 30 minutes, which
-/// ends it. Any other failure, such as a dropped connection, an undecodable
-/// event, or a failed page request, is returned once, and the stream then
-/// ends. Dropping the stream closes its connection or stops fetching pages.
+/// A clean close by the server ends an event stream. Any other failure, such
+/// as a dropped connection, an undecodable event, or a failed page request,
+/// is returned once and ends the stream. Dropping the stream closes its
+/// connection or stops fetching pages.
 ///
 /// Read items with [`next`](Self::next), or use the [`Stream`] trait with
 /// combinators from `futures` or `tokio-stream`.

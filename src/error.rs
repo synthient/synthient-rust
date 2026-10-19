@@ -91,8 +91,7 @@ impl From<serde_json::Error> for Error {
 /// A non-success HTTP response.
 ///
 /// Its `Display` output contains only the status, so it is safe to log. The
-/// other fields hold untrusted server data; inspect them explicitly when
-/// needed.
+/// other fields hold untrusted server data.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ApiError {

@@ -59,8 +59,7 @@ impl RetryPolicy {
     fn retries(self, response: &Response) -> bool {
         let status = response.status();
         if status == StatusCode::TOO_MANY_REQUESTS {
-            // Only the rate limiter sets Retry-After. Without it, the key's
-            // monthly budget is spent or it has too many open streams.
+            // Only the rate limiter sets Retry-After.
             return response
                 .headers()
                 .get(RETRY_AFTER)

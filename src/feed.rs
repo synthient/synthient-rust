@@ -97,9 +97,8 @@ impl<T> Feed<T> {
     }
 
     /// Returns a stream of every export, newest first, starting at `cursor`
-    /// when it is set. Pages of `limit` exports are fetched lazily as the
-    /// stream is read, and dropping the stream stops fetching. An error is
-    /// returned once and ends the stream.
+    /// when it is set. Pages of `limit` exports are fetched as the stream is
+    /// read.
     pub fn all_exports(&self, limit: Option<u32>, cursor: Option<&str>) -> ExportStream
     where
         T: 'static,
@@ -140,10 +139,9 @@ impl<T> Feed<T> {
             .await
     }
 
-    /// Opens an export's parquet file for reading. The API key is sent only
-    /// to the Synthient API, never to the storage host that serves the file,
-    /// and errors never include the presigned URL. The client's timeout
-    /// covers opening the download but not reading it.
+    /// Opens an export's parquet file for reading. The API key is never sent
+    /// to the storage host that serves the file, and errors never include the
+    /// presigned URL.
     ///
     /// # Errors
     ///
@@ -182,9 +180,9 @@ impl<T> Feed<T> {
 
 impl<T: DeserializeOwned + Send + 'static> Feed<T> {
     /// Opens the feed's real-time event stream. Each call opens a new
-    /// connection, which the server closes cleanly after up to 30 minutes.
-    /// The API has no resume cursor, so events sent between connections are
-    /// missed. Call `stream` again to reconnect.
+    /// connection, which the server closes after up to 30 minutes. Events
+    /// sent between connections are missed, so call `stream` again to
+    /// reconnect.
     ///
     /// ```no_run
     /// # async fn run(client: synthient::Client) -> Result<(), synthient::Error> {
@@ -199,8 +197,7 @@ impl<T: DeserializeOwned + Send + 'static> Feed<T> {
     ///
     /// # Errors
     ///
-    /// A non-success response returns an [`Error::Api`]. A 429 without
-    /// `retry_after` means the key already has too many open streams.
+    /// A non-success response returns an [`Error::Api`].
     pub async fn stream(&self) -> Result<EventStream<T>> {
         let url = self
             .client

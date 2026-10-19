@@ -17,9 +17,6 @@
 //! # }
 //! ```
 //!
-//! [`IpInfo::network`], [`IpInfo::location`], and [`IpInfo::intelligence`]
-//! are `None` when the API has no data for that section.
-//!
 //! The client is asynchronous and runs on Tokio. Cloning it is cheap, and
 //! every future and stream it returns is `Send`.
 //!
@@ -45,8 +42,8 @@
 //!
 //! Error messages contain only the HTTP status. Server-provided details are
 //! in the fields of [`ApiError`] and can contain sensitive data.
-//! [`ClientBuilder::on_response`] exposes request IDs and rate limits on both
-//! successful and failed API responses, including each retry and page.
+//! [`ClientBuilder::on_response`] exposes request IDs and rate limits for
+//! every API response.
 //!
 //! # Retries
 //!
@@ -82,17 +79,16 @@
 //! # }
 //! ```
 //!
-//! [`Feed::download`] fetches an export's parquet file. The API key is sent
-//! only to the Synthient API; the file itself comes from a presigned storage
-//! URL that is requested without it.
+//! [`Feed::download`] fetches an export's parquet file without sending the
+//! API key to the storage host.
 //!
 //! # Timeouts
 //!
 //! By default, connecting gives up after 30 seconds and a read that stalls
-//! for 60 seconds fails, which streams never hit because the server sends a
-//! keepalive line every 15 seconds. There is no overall limit, because
-//! streams and downloads are long-lived. Set one for each operation with
-//! [`ClientBuilder::timeout`], or drop a future to cancel it.
+//! for 60 seconds fails. Streams send a keepalive line every 15 seconds, so
+//! they never stall that long. There is no overall limit, because streams
+//! and downloads are long-lived. Set one with [`ClientBuilder::timeout`], or
+//! drop a future to cancel it.
 //!
 //! # Features
 //!

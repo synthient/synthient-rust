@@ -25,10 +25,7 @@ async fn print_events(client: &Client) -> synthient::Result<()> {
     let pause = Duration::from_secs(2);
     loop {
         let delay = match print_stream(client).await {
-            // The server closes every stream after up to 30 minutes, so
-            // reconnect at once.
             Ok(()) => continue,
-            // Reconnecting can't fix a rejected key or a missing scope.
             Err(Error::Api(err)) if matches!(err.status.as_u16(), 401 | 403) => {
                 return Err(Error::Api(err));
             }
@@ -41,8 +38,7 @@ async fn print_events(client: &Client) -> synthient::Result<()> {
                 pause
             }
         };
-        // Pause after a failure so a failing stream doesn't reconnect in a
-        // tight loop, and wait longer if the server asked to.
+        // Avoid reconnecting in a tight loop.
         tokio::time::sleep(delay).await;
     }
 }

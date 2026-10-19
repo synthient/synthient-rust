@@ -319,9 +319,8 @@ pub struct TlsExtension {
     pub length: Option<u16>,
 }
 
-/// A destination that a Helios honeypot tunnel was asked to reach. Despite
-/// the feed's name, it is not a DNS query: names resolved inside a tunneled
-/// DNS session are not visible.
+/// A destination that a Helios honeypot tunnel was asked to reach. Names
+/// resolved inside a tunneled DNS session are not visible.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct HeliosDnsEvent {
