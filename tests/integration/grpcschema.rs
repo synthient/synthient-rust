@@ -23,13 +23,11 @@ use synthient::grpcschema::prost_types::FileDescriptorProto;
 
 use crate::server::closed_addr;
 
-/// Returns a fetch from a local plaintext server.
 fn local(addr: &str) -> grpcschema::Fetch {
     grpcschema::fetch("test-key").endpoint(addr).plaintext(true)
 }
 
-/// Starts a gRPC server with reflection and the health service. It returns
-/// the server address and the x-api-key metadata of every call.
+/// Returns the server's address and the x-api-key metadata of every call.
 async fn start_server() -> (String, Arc<Mutex<Vec<Option<String>>>>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap().to_string();

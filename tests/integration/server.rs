@@ -32,7 +32,6 @@ impl Received {
 pub(crate) enum Reply {
     /// Writes a complete response and keeps the connection open.
     Full(Vec<u8>),
-    /// Waits, then writes a complete response.
     Delayed(Duration, Vec<u8>),
     /// Writes the bytes, then closes the connection.
     Partial(Vec<u8>),
@@ -52,8 +51,8 @@ pub(crate) struct Server {
 }
 
 impl Server {
-    /// Starts a server that answers the request at each index with
-    /// `handler`. Indexes count every request across connections.
+    /// `handler` gets each request's index, which counts every request across
+    /// connections.
     pub(crate) async fn start(
         handler: impl Fn(usize, &Received) -> Reply + Send + Sync + 'static,
     ) -> Self {
@@ -195,7 +194,6 @@ async fn read_request(
     Some(request)
 }
 
-/// Returns a complete response with a Content-Length.
 pub(crate) fn response(status: u16, headers: &[(&str, &str)], body: &[u8]) -> Reply {
     Reply::Full(response_bytes(status, headers, body))
 }
@@ -258,8 +256,6 @@ pub(crate) fn rate_limited(retry_after: &str) -> Reply {
     response(429, &[("retry-after", retry_after)], b"")
 }
 
-/// Returns the API error a request failed with, and panics on any other
-/// outcome.
 pub(crate) fn expect_api_error<T: std::fmt::Debug>(result: synthient::Result<T>) -> ApiError {
     match result {
         Err(Error::Api(err)) => *err,

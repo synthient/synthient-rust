@@ -38,7 +38,6 @@ async fn print_events(client: &Client) -> synthient::Result<()> {
                 pause
             }
         };
-        // Avoid reconnecting in a tight loop.
         tokio::time::sleep(delay).await;
     }
 }

@@ -60,8 +60,6 @@ pub(crate) fn request_id(headers: &HeaderMap) -> Option<String> {
     Some(value.to_owned())
 }
 
-/// Parses a header holding a non-negative integer, such as a rate limit or a
-/// Retry-After given in seconds.
 pub(crate) fn header_number(headers: &HeaderMap, name: impl AsHeaderName) -> Option<u64> {
     headers.get(name)?.to_str().ok()?.trim().parse().ok()
 }

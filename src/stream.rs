@@ -10,7 +10,6 @@ use serde::de::DeserializeOwned;
 
 use crate::error::{Error, Result};
 
-/// The longest stream line buffered while waiting for its newline.
 const MAX_EVENT_SIZE: usize = 16 << 20;
 
 /// A stream of a feed's real-time events from
@@ -66,9 +65,8 @@ impl<T> fmt::Debug for EventStream<T> {
     }
 }
 
-/// Reads the next event, skipping blank keepalive lines. A final line without
-/// a newline is still decoded, so a truncated event is an error rather than
-/// a silent end.
+/// Blank lines are keepalives. A final line without a newline is still
+/// decoded, so a truncated event is an error rather than a silent end.
 async fn next_event<T: DeserializeOwned>(
     response: &mut Response,
     lines: &mut Lines,
@@ -101,8 +99,6 @@ async fn next_event<T: DeserializeOwned>(
     }
 }
 
-/// Splits bytes that arrive in arbitrary chunks into newline-terminated
-/// lines.
 #[derive(Default)]
 struct Lines {
     buffer: BytesMut,

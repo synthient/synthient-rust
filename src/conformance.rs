@@ -20,7 +20,6 @@ use crate::lookup::*;
 
 type Check = fn(Value) -> Result<Value, serde_json::Error>;
 
-/// Maps each spec schema to the Rust type that models it.
 const SCHEMAS: &[(&str, Check)] = &[
     ("ASNEntry", round_trip::<AsnCount>),
     ("AccountAPIKey", round_trip::<AccountApiKey>),
@@ -71,9 +70,8 @@ const SCHEMAS: &[(&str, Check)] = &[
 /// are kept when others are missing.
 const LENIENT: &[&str] = &["ProblemDetails", "ValidationProblemDetails"];
 
-/// Maps each spec property with a value set to the values of the Rust enum
-/// that models it. A single-value enum, such as a stream's protocol, stays a
-/// plain string.
+/// A single-value enum, such as a stream's protocol, stays a plain string and
+/// is not listed here.
 const ENUMS: &[(&str, &str, &[&str])] = &[
     ("AccountInfoResponse", "scopes", Scope::VALUES),
     ("ActivityStatsBlock", "cadence", Cadence::VALUES),

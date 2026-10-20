@@ -9,7 +9,6 @@ use serde::Deserialize;
 use crate::response::{read_body, request_id};
 use crate::retry::parse_retry_after;
 
-/// The largest error body read for diagnostics. Longer bodies are cut off.
 const MAX_ERROR_SIZE: usize = 64 << 10;
 
 /// A `Result` whose error is [`Error`].
@@ -132,8 +131,8 @@ pub(crate) struct Problem {
     errors: Option<serde_json::Value>,
 }
 
-/// Reads a non-success response into an [`Error::Api`]. The status and
-/// headers are kept even when the body is missing, malformed, or unreadable.
+/// Keeps the status and headers even when the body is missing, malformed, or
+/// unreadable.
 pub(crate) async fn api_error(mut response: Response) -> Error {
     let status = response.status();
     let headers = response.headers();
@@ -165,8 +164,6 @@ pub(crate) async fn api_error(mut response: Response) -> Error {
     }))
 }
 
-/// Returns the response if its status is 200, or reads it into an
-/// [`Error::Api`].
 pub(crate) async fn require_ok(response: Response) -> Result<Response> {
     if response.status() != StatusCode::OK {
         return Err(api_error(response).await);

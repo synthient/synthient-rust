@@ -140,10 +140,10 @@ impl Client {
         url
     }
 
-    /// Sends a request, retrying as its policy allows, and passes the
-    /// response to `handle`. The client's timeout covers both. A retry that
-    /// would wait past the timeout is skipped, so the caller gets the last
-    /// response rather than [`Error::Timeout`].
+    /// `handle` gets the last response, whatever its status, and is not
+    /// retried. The client's timeout covers the attempts and `handle`. A retry
+    /// that would wait past the timeout is skipped, so the caller gets the
+    /// last response rather than [`Error::Timeout`].
     pub(crate) async fn execute<T>(
         &self,
         request: &Request,
@@ -175,7 +175,6 @@ impl Client {
         }
     }
 
-    /// Sends a request and decodes its JSON response.
     pub(crate) async fn request_json<T: DeserializeOwned>(&self, request: Request) -> Result<T> {
         self.with_timeout(async |deadline| {
             self.send(&request, deadline, async |mut response| {
@@ -425,7 +424,6 @@ fn parse_base_url(raw: &str) -> Result<Url> {
     Ok(url)
 }
 
-/// Returns whether `url` is http(s) with a host and no credentials.
 pub(crate) fn is_http_url(url: &Url) -> bool {
     matches!(url.scheme(), "http" | "https")
         && url.has_host()

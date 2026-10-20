@@ -367,7 +367,6 @@ impl Reflector {
         Ok(services)
     }
 
-    /// Sends a file request and adds the returned files to `files`.
     async fn files(
         &mut self,
         request: MessageRequest,

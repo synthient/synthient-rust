@@ -165,8 +165,7 @@ impl<T> Feed<T> {
             .await
     }
 
-    /// Returns the API URL of an export, followed by `tail`. Only digits are
-    /// accepted in the ID, so it cannot change the path.
+    /// The ID is validated, so it cannot change the path.
     fn export_url(&self, id: &str, tail: &[&str]) -> Result<Url> {
         let export = export_segments(id)?;
         let segments = self.path.iter().copied().chain(["export"]);
@@ -211,8 +210,6 @@ impl<T: DeserializeOwned + Send + 'static> Feed<T> {
     }
 }
 
-/// Splits an export ID into its path segments, normalizing a zero-padded
-/// hour.
 fn export_segments(id: &str) -> Result<Vec<String>> {
     let invalid = || Error::InvalidInput(format!("invalid export ID {id:?}"));
     if id == "latest" {
@@ -246,7 +243,8 @@ fn export_segments(id: &str) -> Result<Vec<String>> {
     Ok(vec![date.to_owned(), hour.to_string()])
 }
 
-/// Parses `text` if it is exactly `len` ASCII digits.
+/// Parses `text` if it is exactly `len` ASCII digits. The digit check rejects
+/// a leading `+`, which `str::parse` accepts.
 fn digits(text: &str, len: usize) -> Option<u32> {
     if text.len() != len || !text.bytes().all(|b| b.is_ascii_digit()) {
         return None;
@@ -254,7 +252,6 @@ fn digits(text: &str, len: usize) -> Option<u32> {
     text.parse().ok()
 }
 
-/// Returns the storage URL the API redirects an export request to.
 async fn export_location(from: &Url, response: Response) -> Result<Url> {
     if response.status().is_client_error() || response.status().is_server_error() {
         return Err(api_error(response).await);
@@ -268,8 +265,8 @@ async fn export_location(from: &Url, response: Response) -> Result<Url> {
     redirect_target(from, &response)
 }
 
-/// Resolves a redirect's Location. Only http(s) targets without credentials
-/// are allowed, and an https request never redirects to http.
+/// A redirect from https to http is refused, because following it would send
+/// the presigned URL in plain text.
 fn redirect_target(from: &Url, response: &Response) -> Result<Url> {
     let invalid = || Error::Protocol("export redirect has no valid location".to_owned());
     let location = response
@@ -304,8 +301,8 @@ pub struct ExportPage {
     pub next_cursor: Option<String>,
 }
 
-/// Decodes an optional string, reading an empty one as `None`. The API ends
-/// export listings with either a null or an empty cursor.
+/// Reads an empty cursor as `None`, in case the API ends a listing with one
+/// instead of omitting the cursor.
 fn non_empty<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<String>, D::Error> {
     let value = Option::<String>::deserialize(deserializer)?;
     Ok(value.filter(|value| !value.is_empty()))
@@ -415,7 +412,6 @@ struct Pages<T> {
     feed: Feed<T>,
     limit: Option<u32>,
     cursor: Option<String>,
-    /// Whether the last page has been fetched.
     done: bool,
     seen: HashSet<String>,
     exports: std::vec::IntoIter<Export>,

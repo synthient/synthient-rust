@@ -25,8 +25,6 @@ pub(crate) enum RetryPolicy {
 }
 
 impl RetryPolicy {
-    /// Returns how long to wait before retrying, or `None` if the result
-    /// should be returned as it is.
     pub(crate) fn delay(
         self,
         result: &reqwest::Result<Response>,
@@ -80,8 +78,8 @@ fn backoff(attempt: u32) -> Duration {
     base.mul_f64(0.75 + fraction / 2.0)
 }
 
-/// Parses a Retry-After header given in seconds. The API never sends the
-/// HTTP-date form.
+/// Reads only the seconds form, because the API never sends the HTTP-date
+/// form.
 pub(crate) fn parse_retry_after(headers: &HeaderMap) -> Option<Duration> {
     header_number(headers, RETRY_AFTER).map(Duration::from_secs)
 }
