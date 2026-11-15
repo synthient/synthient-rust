@@ -24,28 +24,25 @@ The `synthient` crate is the official Rust SDK for the [Synthient API](https://d
 ## Table of Contents
 
 - [synthient-rust](#synthient-rust)
-  - [SDK Installation](#sdk-installation)
-  - [Requirements](#requirements)
-  - [API Keys](#api-keys)
+  - [Installation](#installation)
+  - [Quick start](#quick-start)
   - [Authentication](#authentication)
-  - [SDK Example Usage](#sdk-example-usage)
   - [Available Resources and Operations](#available-resources-and-operations)
-  - [Streaming](#streaming)
-  - [Pagination](#pagination)
-  - [Downloads](#downloads)
-  - [Retries](#retries)
-  - [Timeouts](#timeouts)
-  - [Error Handling](#error-handling)
-  - [Server Selection](#server-selection)
-  - [Custom HTTP Client](#custom-http-client)
-  - [Debugging](#debugging)
-  - [gRPC Schema](#grpc-schema)
-- [Development](#development)
-  - [Maturity](#maturity)
+  - [IP and domain lookups](#ip-and-domain-lookups)
+  - [Account](#account)
+  - [Feeds](#feeds)
+  - [Errors](#errors)
+  - [Retries and timeouts](#retries-and-timeouts)
+  - [Configuration](#configuration)
+  - [Response metadata](#response-metadata)
+  - [gRPC schema](#grpc-schema)
+  - [Requirements](#requirements)
+  - [Versioning](#versioning)
+  - [Documentation](#documentation)
   - [Contributions](#contributions)
   - [License](#license)
 
-## SDK Installation
+## Installation
 
 ```sh
 cargo add synthient
@@ -66,50 +63,9 @@ To use the platform's TLS library, turn off the default features:
 cargo add synthient --no-default-features --features native-tls
 ```
 
-## Requirements
+## Quick start
 
-Rust 1.85 or later, and a Tokio runtime with its time driver enabled, which `#[tokio::main]` provides.
-
-The newest releases of some dependencies need Rust 1.88, so Rust 1.85 to 1.87 needs Cargo's MSRV-aware resolver. Edition 2024 packages use it by default. In an edition 2021 package, turn it on in `[package]`, or in `[workspace]` for a workspace:
-
-```toml
-[package]
-resolver = "3"
-```
-
-## API Keys
-
-Every request needs a Synthient API key. Keys are issued from the Synthient dashboard; if you don't have one, [contact us](mailto:contact@synthient.com). A key's scopes decide what it can call: `BASIC` covers the lookups and `account`, and each feed has its own scopes, listed under [Feeds](#feeds).
-
-If a request fails even though you are sending a key:
-
-- **401 Unauthorized**: the key is malformed, unknown, or revoked.
-- **402 Payment Required**: the team is out of lookup credits.
-- **403 Forbidden**: the key lacks the scope for that endpoint or feed.
-
-`account` shows the key's scopes and the team's remaining credits.
-
-## Authentication
-
-This SDK supports the following security scheme:
-
-| Name      | Type    | Scheme             |
-| --------- | ------- | ------------------ |
-| `api_key` | API key | `x-api-key` header |
-
-Pass the key to `Client::new`, reading it from the environment or a secret manager:
-
-```rust
-let client = synthient::Client::new(std::env::var("SYNTHIENT_API_KEY")?)?;
-```
-
-`Client::new` makes no network calls. To check a key, call `account`, which costs no credits.
-
-## SDK Example Usage
-
-### Look up an IP address
-
-Get the network, location, and risk intelligence for an IPv4 or IPv6 address. Each lookup costs one credit; failed lookups are free.
+Create a client with the API key in `SYNTHIENT_API_KEY` and look up one address:
 
 ```rust
 use std::net::Ipv4Addr;
@@ -126,20 +82,99 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-`network`, `location`, and `intelligence` are `None` when the API has no data for them. Reuse one client; clones are cheap and share a connection pool. The examples below reuse `client`, and runnable programs are in [examples](https://github.com/synthient/synthient-rust/tree/main/examples).
+Reuse one client; clones are cheap and share a connection pool. The examples below reuse `client`, and runnable programs are in [examples](https://github.com/synthient/synthient-rust/tree/main/examples). The [Rust SDK guide](https://docs.synthient.com/sdks/rust) walks through the same steps.
+
+## Authentication
+
+Every request needs a Synthient API key. Keys are issued from the Synthient dashboard; if you don't have one, [contact us](mailto:contact@synthient.com). A key's scopes decide what it can call: `BASIC` covers the lookups and `account`, and each feed has its own scopes, listed under [Feeds](#feeds).
+
+This SDK supports the following security scheme:
+
+| Name      | Type    | Scheme             |
+| --------- | ------- | ------------------ |
+| `api_key` | API key | `x-api-key` header |
+
+Pass the key to `Client::new`, reading it from the environment or a secret manager:
+
+```rust
+let client = synthient::Client::new(std::env::var("SYNTHIENT_API_KEY")?)?;
+```
+
+`Client::new` makes no network calls. To check a key, call `account`, which costs no credits.
+
+If a request fails even though you are sending a key:
+
+- **401 Unauthorized**: the key is malformed, unknown, or revoked.
+- **402 Payment Required**: the team is out of lookup credits.
+- **403 Forbidden**: the key lacks the scope for that endpoint or feed.
+
+`account` shows the key's scopes and the team's remaining credits.
+
+See [Authentication](https://docs.synthient.com/authentication) for how keys and scopes work.
+
+## Available Resources and Operations
+
+<details open>
+<summary>Available methods</summary>
+
+### [Client](https://docs.rs/synthient/latest/synthient/struct.Client.html)
+
+- [`lookup_ip`](https://docs.rs/synthient/latest/synthient/struct.Client.html#method.lookup_ip) - Look up an IPv4 or IPv6 address
+- [`lookup_ips`](https://docs.rs/synthient/latest/synthient/struct.Client.html#method.lookup_ips) - Look up as many as 1000 addresses in one request
+- [`lookup_domain`](https://docs.rs/synthient/latest/synthient/struct.Client.html#method.lookup_domain) - Look up the honeypot traffic observed for a domain
+- [`account`](https://docs.rs/synthient/latest/synthient/struct.Client.html#method.account) - Get the key's account, scopes, and remaining lookup credits
+- [`health`](https://docs.rs/synthient/latest/synthient/struct.Client.html#method.health) - Check that the API and its dependencies are healthy
+
+### [Feed](https://docs.rs/synthient/latest/synthient/struct.Feed.html)
+
+Each feed comes from a client method, such as `client.proxies()`, and has the same methods:
+
+- [`stream`](https://docs.rs/synthient/latest/synthient/struct.Feed.html#method.stream) - Open the feed's real-time event stream
+- [`list_exports`](https://docs.rs/synthient/latest/synthient/struct.Feed.html#method.list_exports) - List one page of the feed's Parquet exports, newest first
+- [`all_exports`](https://docs.rs/synthient/latest/synthient/struct.Feed.html#method.all_exports) - Stream every export, fetching pages as needed
+- [`export_meta`](https://docs.rs/synthient/latest/synthient/struct.Feed.html#method.export_meta) - Get an export's checksum, size, row count, and Parquet schema
+- [`download`](https://docs.rs/synthient/latest/synthient/struct.Feed.html#method.download) - Download an export's Parquet file
+- [`download_url`](https://docs.rs/synthient/latest/synthient/struct.Feed.html#method.download_url) - Get a presigned URL for an export's Parquet file, valid for 24 hours
+
+</details>
+
+## IP and domain lookups
+
+### Look up an IP address
+
+Get the network, location, and risk intelligence for an IPv4 or IPv6 address. Each lookup costs one credit; failed lookups are free.
+
+```rust
+use std::net::IpAddr;
+
+let ip: IpAddr = "2001:4860:4860::8888".parse()?;
+let info = client.lookup_ip(ip).await?;
+if let Some(network) = &info.network {
+    println!("{} {}", network.asn, network.isp);
+}
+if let Some(location) = &info.location {
+    println!("{} {}", location.city, location.country);
+}
+```
+
+`network`, `location`, and `intelligence` are `None` when the API has no data for them. Private and reserved addresses return a 422.
 
 ### Look up many IP addresses
 
 Look up as many as 1000 addresses in one request for `ceil(n * 0.9)` credits. Private and reserved addresses are skipped and duplicates are merged, so match results by `ip`.
 
 ```rust
-let ips = ["8.8.8.8".parse()?, "1.1.1.1".parse()?];
+use std::net::IpAddr;
+
+let ips: [IpAddr; 2] = ["8.8.8.8".parse()?, "1.1.1.1".parse()?];
 for result in client.lookup_ips(&ips).await? {
     if let Some(intelligence) = &result.intelligence {
         println!("{} {}", result.ip, intelligence.risk_score);
     }
 }
 ```
+
+An empty slice returns an empty `Vec` without a request, and more than 1000 addresses return `Error::InvalidInput` before anything is sent.
 
 ### Look up a domain
 
@@ -156,9 +191,11 @@ for event in &domain.recent_events {
 }
 ```
 
-The second argument caps the recent events, from 1 to 1000; `None` uses the default of 50.
+The second argument caps the recent events, from 1 to 1000; `None` uses the default of 50. Each `timestamp` is a [`Timestamp`](https://docs.rs/synthient/latest/synthient/struct.Timestamp.html), the Unix time as the API sends it; `to_system_time` converts it to a `SystemTime`.
 
-### Check your account
+See [Lookups](https://docs.synthient.com/sdks/rust/lookups) for every option, [Types](https://docs.synthient.com/sdks/rust/types) for the response fields, and the [IP API](https://docs.synthient.com/ipapi) for what the data means.
+
+## Account
 
 Get the key's account, scopes, and remaining lookup credits, at no cost.
 
@@ -170,29 +207,15 @@ println!(
 );
 ```
 
-## Available Resources and Operations
+`health` checks that the API and its dependencies are healthy, at no cost. An unhealthy API returns a 503 `Error::Api`:
 
-<details open>
-<summary>Available methods</summary>
+```rust
+client.health().await?;
+```
 
-### [Client](https://docs.rs/synthient/latest/synthient/struct.Client.html)
+## Feeds
 
-- [`lookup_ip`](https://docs.rs/synthient/latest/synthient/struct.Client.html#method.lookup_ip) - Look up an IPv4 or IPv6 address
-- [`lookup_ips`](https://docs.rs/synthient/latest/synthient/struct.Client.html#method.lookup_ips) - Look up as many as 1000 addresses in one request
-- [`lookup_domain`](https://docs.rs/synthient/latest/synthient/struct.Client.html#method.lookup_domain) - Look up the honeypot traffic observed for a domain
-- [`account`](https://docs.rs/synthient/latest/synthient/struct.Client.html#method.account) - Get the key's account, scopes, and remaining lookup credits
-- [`health`](https://docs.rs/synthient/latest/synthient/struct.Client.html#method.health) - Check that the API and its dependencies are healthy
-
-### [Feeds](https://docs.rs/synthient/latest/synthient/struct.Feed.html)
-
-Each feed comes from a client method, such as `client.proxies()`, and has the same methods:
-
-- [`stream`](https://docs.rs/synthient/latest/synthient/struct.Feed.html#method.stream) - Open the feed's real-time event stream
-- [`list_exports`](https://docs.rs/synthient/latest/synthient/struct.Feed.html#method.list_exports) - List one page of the feed's Parquet exports, newest first
-- [`all_exports`](https://docs.rs/synthient/latest/synthient/struct.Feed.html#method.all_exports) - Stream every export, fetching pages as needed
-- [`export_meta`](https://docs.rs/synthient/latest/synthient/struct.Feed.html#method.export_meta) - Get an export's checksum, size, row count, and Parquet schema
-- [`download`](https://docs.rs/synthient/latest/synthient/struct.Feed.html#method.download) - Download an export's Parquet file
-- [`download_url`](https://docs.rs/synthient/latest/synthient/struct.Feed.html#method.download_url) - Get a presigned URL for an export's Parquet file, valid for 24 hours
+Each feed comes from a client method, such as `client.proxies()`, and has a real-time stream and hourly Parquet exports that roll up into daily exports. Streaming and exports need separate scopes on the API key:
 
 | Method         | Data                                          | Event type         | Stream scope            | Export scope          |
 | -------------- | --------------------------------------------- | ------------------ | ----------------------- | --------------------- |
@@ -205,13 +228,15 @@ Each feed comes from a client method, such as `client.proxies()`, and has the sa
 | `helios_dns`   | Helios honeypot tunnel destinations           | `HeliosDnsEvent`   | `HONEYPOT_DNS_STREAM`   | `HONEYPOT_DNS_FEED`   |
 | `helios_adb`   | Helios honeypot Android Debug Bridge commands | `HeliosAdbEvent`   | `HONEYPOT_ADB_STREAM`   | `HONEYPOT_ADB_FEED`   |
 
-</details>
+See [Feeds](https://docs.synthient.com/sdks/rust/feeds) for every method, and [Firehose](https://docs.synthient.com/enterprise/firehose) and [Feeds](https://docs.synthient.com/enterprise/feeds) for the data behind the streams and exports.
 
-## Streaming
+### Streaming
 
 `stream` opens a connection to a feed's real-time events and returns an [`EventStream`](https://docs.rs/synthient/latest/synthient/struct.EventStream.html). Read it with `next` or as a `Stream`, and drop it to close the connection:
 
 ```rust
+use std::time::Duration;
+
 use synthient::Error;
 
 async fn print_proxies(client: &synthient::Client) -> synthient::Result<()> {
@@ -247,7 +272,7 @@ loop {
 - Any other failure ends the stream, and the loop waits 2 seconds before reconnecting.
 - Events sent while disconnected are missed. The API has no resume cursor.
 
-## Pagination
+### Exports
 
 `list_exports` returns one page of a feed's exports, newest first. Its first argument is the page size, from 1 to 500; `None` uses the default of 100. Pass `page.next_cursor.as_deref()` as the second to get the next page; it is `None` on the last one.
 
@@ -270,7 +295,7 @@ while let Some(export) = exports.next().await {
 
 On the first page, the newest hourly export has the ID `"latest"`, a moving alias for the freshest export. Its `date` and `hour` give its stable ID, such as `"2026-10-14/21"`.
 
-## Downloads
+### Downloads
 
 Exports are Parquet files. `download` returns a [`Download`](https://docs.rs/synthient/latest/synthient/struct.Download.html), which yields the file in chunks as they arrive:
 
@@ -289,39 +314,9 @@ file.flush().await?;
 - `export_meta` returns the file's SHA-256 checksum. Use a fixed ID for both calls, because `"latest"` can move between them.
 - `download_url` returns a presigned URL that works without a key for 24 hours, so treat it as a secret. Your API key is never sent to the storage host.
 - Hourly exports roll into the daily export shortly after 00:30 UTC the next day. After that, the hour returns a 400.
+- `download.content_length()` returns the file's size in bytes, if the storage host sent it.
 
-## Retries
-
-The client retries a failed request up to twice, backing off exponentially with jitter and honoring `Retry-After`:
-
-| Requests                    | Retried on                                                                                   |
-| --------------------------- | -------------------------------------------------------------------------------------------- |
-| Account and feed requests   | 500, 502, 503, and 504, transport errors, and 429 with `Retry-After`                         |
-| Billed lookups and `health` | Only 429 with `Retry-After`, which comes before any work, so a lookup is never charged twice |
-
-A 429 without `Retry-After` means the monthly request budget is spent or too many streams are open, so it is returned at once. Downloads from the storage host are never retried.
-
-Set the number of retries with `max_retries` on `Client::builder`. Zero disables them:
-
-```rust
-let client = synthient::Client::builder(std::env::var("SYNTHIENT_API_KEY")?)
-    .max_retries(4)
-    .build()?;
-```
-
-## Timeouts
-
-By default, connecting gives up after 30 seconds and a read that stalls for 60 seconds fails. There is no overall timeout, because streams and downloads are long-lived. Set one with `timeout` on the builder:
-
-```rust
-let client = synthient::Client::builder(std::env::var("SYNTHIENT_API_KEY")?)
-    .timeout(Duration::from_secs(10))
-    .build()?;
-```
-
-It covers every attempt and the waits between them. For streams and downloads, it covers only opening them. An operation that runs out of time returns `Error::Timeout`. To bound a single call, wrap it in `tokio::time::timeout`.
-
-## Error Handling
+## Errors
 
 A request that fails with a non-success status returns [`Error::Api`](https://docs.rs/synthient/latest/synthient/enum.Error.html#variant.Api), which holds an [`ApiError`](https://docs.rs/synthient/latest/synthient/struct.ApiError.html):
 
@@ -340,6 +335,8 @@ Its `Display` output contains only the HTTP status, so it is safe to log. The fi
 ### Example
 
 ```rust
+use std::net::Ipv4Addr;
+
 use synthient::{Error, StatusCode};
 
 match client.lookup_ip(Ipv4Addr::new(8, 8, 8, 8)).await {
@@ -390,9 +387,61 @@ match client.lookup_ip(Ipv4Addr::new(8, 8, 8, 8)).await {
 
 </details>
 
-## Server Selection
+See [Errors and retries](https://docs.synthient.com/sdks/rust/errors) for the SDK's error types and [Errors](https://docs.synthient.com/errors) for what each status means.
 
-### Override Server URL Per-Client
+## Retries and timeouts
+
+### Retries
+
+The client retries a failed request up to twice, backing off exponentially with jitter and honoring `Retry-After`:
+
+| Requests                    | Retried on                                                                                   |
+| --------------------------- | -------------------------------------------------------------------------------------------- |
+| Account and feed requests   | 500, 502, 503, and 504, transport errors, and 429 with `Retry-After`                         |
+| Billed lookups and `health` | Only 429 with `Retry-After`, which comes before any work, so a lookup is never charged twice |
+
+A 429 without `Retry-After` means the monthly request budget is spent or too many streams are open, so it is returned at once. Downloads from the storage host are never retried.
+
+Backoff starts at one second and doubles up to 30 seconds, with 25% jitter either way. The wait is never shorter than `Retry-After`, and a `Retry-After` longer than a minute is returned to you instead of waited out. See [Rate Limits](https://docs.synthient.com/rate-limits) for the limits behind a 429.
+
+Set the number of retries with `max_retries` on `Client::builder`. Zero disables them:
+
+```rust
+let client = synthient::Client::builder(std::env::var("SYNTHIENT_API_KEY")?)
+    .max_retries(4)
+    .build()?;
+```
+
+### Timeouts
+
+By default, connecting gives up after 30 seconds and a read that stalls for 60 seconds fails. Streams send a keepalive line every 15 seconds, so they never stall that long. There is no overall timeout, because streams and downloads are long-lived. Set one with `timeout` on the builder:
+
+```rust
+use std::time::Duration;
+
+let client = synthient::Client::builder(std::env::var("SYNTHIENT_API_KEY")?)
+    .timeout(Duration::from_secs(10))
+    .build()?;
+```
+
+It covers every attempt and the waits between them. For streams and downloads, it covers only opening them. An operation that runs out of time returns `Error::Timeout`. To bound a single call, wrap it in `tokio::time::timeout`.
+
+## Configuration
+
+`Client::builder` returns a [`ClientBuilder`](https://docs.rs/synthient/latest/synthient/struct.ClientBuilder.html). Each option is one of its methods, and `build` creates the client:
+
+| Method        | Default                            | Description                                                      |
+| ------------- | ---------------------------------- | ---------------------------------------------------------------- |
+| `base_url`    | `https://api.synthient.com/api/v4` | The API base URL, including the version path                     |
+| `max_retries` | `2`                                | How many times a failed request is retried; `0` disables retries |
+| `timeout`     | None                               | A time limit for each operation                                  |
+| `user_agent`  | None                               | A product token added to the `User-Agent` header                 |
+| `http_client` | 30 s connect, 60 s read timeout    | A reqwest `ClientBuilder` to build the HTTP client from          |
+| `on_response` | None                               | A function called after every API response                       |
+
+The crate exports the default base URL as `synthient::DEFAULT_BASE_URL` and its own version as `synthient::VERSION`. See [Client](https://docs.synthient.com/sdks/rust/client) for each option in detail.
+
+### Override the server URL
 
 The default server is `https://api.synthient.com/api/v4`. Use `base_url` on the builder to send requests elsewhere, such as a mock server in tests:
 
@@ -402,11 +451,15 @@ let client = synthient::Client::builder(std::env::var("SYNTHIENT_API_KEY")?)
     .build()?;
 ```
 
-## Custom HTTP Client
+The URL must be `http` or `https`, with a host and no credentials, query, or fragment; anything else makes `build` return `Error::InvalidInput`.
+
+### Custom HTTP client
 
 Pass a [reqwest](https://docs.rs/reqwest) `ClientBuilder` to `http_client`, for example to use a specific proxy. Build it from the re-exported `synthient::reqwest`, so the versions match:
 
 ```rust
+use std::time::Duration;
+
 use synthient::reqwest;
 
 let http = reqwest::Client::builder()
@@ -424,9 +477,9 @@ let client = synthient::Client::builder(std::env::var("SYNTHIENT_API_KEY")?)
 - The SDK turns off reqwest's redirects and retries on your builder, so the API key never reaches the storage host and a billed lookup is never sent twice.
 - The default client already honors `HTTP_PROXY`, `HTTPS_PROXY`, and the macOS and Windows proxy settings.
 
-`user_agent("my-app/1.2")` on the builder adds your product token to the `User-Agent` header.
+`user_agent("my-app/1.2")` on the builder adds your product token to the `User-Agent` header. The header starts with `synthient-rust/` and the crate version.
 
-## Debugging
+## Response metadata
 
 `on_response` on the builder calls a function after every API response, including retries, pages, and stream handshakes, with a [`ResponseMetadata`](https://docs.rs/synthient/latest/synthient/struct.ResponseMetadata.html) holding the status, request ID, rate limit, and headers:
 
@@ -444,12 +497,14 @@ let client = synthient::Client::builder(std::env::var("SYNTHIENT_API_KEY")?)
     .build()?;
 ```
 
-The hook runs synchronously, before the response body is read, so keep it fast.
+The hook runs synchronously, before the response body is read, so keep it fast. It is not called for download responses from the storage host.
+
+`meta.rate_limit` is a [`RateLimit`](https://docs.rs/synthient/latest/synthient/struct.RateLimit.html) with `limit`, `remaining`, and `reset`, the time until the bucket is full again. It is `None` when a response reports no rate limit, as on `health`.
 
 > [!WARNING]
 > Response headers can contain secrets, such as presigned download URLs. Avoid logging `meta.headers` in production.
 
-## gRPC Schema
+## gRPC schema
 
 The [`grpcschema`](https://docs.rs/synthient/latest/synthient/grpcschema/index.html) module fetches the protobuf schema of the [Synthient gRPC API](https://docs.synthient.com/grpc) through server reflection. It needs the `grpcschema` feature:
 
@@ -472,11 +527,44 @@ for file in &schema.descriptor_set.file {
 
 `schema.descriptor_set` is a `prost_types::FileDescriptorSet`, and the module re-exports `prost` and `prost_types`. `SchemaError::explain` describes common gRPC errors in plain language.
 
-# Development
+Change a fetch's options before awaiting it:
 
-## Maturity
+```rust
+use std::time::Duration;
+
+let schema = synthient::grpcschema::fetch(std::env::var("SYNTHIENT_API_KEY")?)
+    .symbols(["grpc.reflection.v1.ServerReflection"])
+    .timeout(Duration::from_secs(10))
+    .await?;
+```
+
+- `endpoint` sets the server. The default is `grpc.synthient.com:443`.
+- `plaintext(true)` disables TLS, for local development servers.
+- `symbols` resolves the named services or messages instead of every service the server lists.
+- `timeout` sets how long the whole fetch may take. The default is 30 seconds.
+
+See [gRPC schema](https://docs.synthient.com/sdks/rust/grpc-schema) for the full reference.
+
+## Requirements
+
+Rust 1.85 or later, and a Tokio runtime with its time driver enabled, which `#[tokio::main]` provides.
+
+The newest releases of some dependencies need Rust 1.88, so Rust 1.85 to 1.87 needs Cargo's MSRV-aware resolver. Edition 2024 packages use it by default. In an edition 2021 package, turn it on in `[package]`, or in `[workspace]` for a workspace:
+
+```toml
+[package]
+resolver = "3"
+```
+
+## Versioning
 
 This SDK follows [Semantic Versioning](https://semver.org). Breaking changes ship only in a new major version. Response types and enums are `#[non_exhaustive]`, and unknown enum values decode to `Unknown`, so new API fields and values can arrive in minor versions.
+
+## Documentation
+
+- [Rust SDK guide](https://docs.synthient.com/sdks/rust): [Client](https://docs.synthient.com/sdks/rust/client), [Lookups](https://docs.synthient.com/sdks/rust/lookups), [Feeds](https://docs.synthient.com/sdks/rust/feeds), [Errors and retries](https://docs.synthient.com/sdks/rust/errors), [Types](https://docs.synthient.com/sdks/rust/types), and [gRPC schema](https://docs.synthient.com/sdks/rust/grpc-schema)
+- [API reference on docs.rs](https://docs.rs/synthient)
+- [Synthient API documentation](https://docs.synthient.com): [IP API](https://docs.synthient.com/ipapi), [Authentication](https://docs.synthient.com/authentication), [Rate Limits](https://docs.synthient.com/rate-limits), [Errors](https://docs.synthient.com/errors), [Feeds](https://docs.synthient.com/enterprise/feeds), and [Firehose](https://docs.synthient.com/enterprise/firehose)
 
 ## Contributions
 
