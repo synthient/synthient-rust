@@ -1,11 +1,18 @@
 use futures_util::StreamExt;
-use synthient::{Error, ExportKind, ParquetType, StatusCode};
+use synthient::{Error, ExportKind, ExportVariant, ParquetType, StatusCode};
 
 use crate::server::{
-    Server, closed_addr, expect_api_error, export_page, json, problem, response, truncated_json,
+    Received, Server, closed_addr, expect_api_error, export_page, json, problem, response,
+    truncated_json,
 };
 
-const META: &str = r#"{"id":"2026-05-03/7","stream":"honeypot_http","kind":"hourly","format":"parquet","date":1777791600,"hour":7,"rows":2,"size":10,"checksum":"ab","created_at":1778200137,"schema":{"fields":[{"name":"tunnel_id","type":"uint64"}]}}"#;
+const META: &str = r#"{"id":"2026-05-03/7","stream":"honeypot_http","kind":"hourly","format":"parquet","date":1777791600,"hour":7,"rows":2,"size":10,"checksum":"ab","created_at":1778200137,"schema":{"fields":[{"name":"tunnel_id","type":"uint64"}]},"formats":[{"format":"parquet","size_bytes":10,"checksum":"ab"}]}"#;
+
+const VOLUME: &str = r#"{"stream":"torrents","days":[{"date":"2026-11-16","kind":"daily","snapshots":1,"row_count":1440452210,"size_bytes":125000000000},{"date":"2026-11-17","kind":"hourly","snapshots":5,"row_count":64417250,"size_bytes":880000000}]}"#;
+
+fn targets(received: Vec<Received>) -> Vec<String> {
+    received.into_iter().map(|request| request.target).collect()
+}
 
 #[tokio::test]
 async fn lists_one_page() {
@@ -34,6 +41,137 @@ async fn lists_one_page() {
     assert_eq!(page.exports[1].kind, ExportKind::Daily);
     assert_eq!(page.exports[1].hour, None);
     assert_eq!(page.next_cursor.as_deref(), Some("c1"));
+}
+
+#[tokio::test]
+async fn helios_feeds_use_the_helios_paths() {
+    let server = Server::start(|_, _| json(200, &export_page(&[], None))).await;
+    let client = server.client();
+
+    client.helios_http().list_exports(None, None).await.unwrap();
+    client
+        .helios_https()
+        .list_exports(None, None)
+        .await
+        .unwrap();
+    client.helios_dns().list_exports(None, None).await.unwrap();
+    client.helios_adb().list_exports(None, None).await.unwrap();
+
+    assert_eq!(
+        targets(server.received()),
+        [
+            "/api/v4/feeds/helios/http/export",
+            "/api/v4/feeds/helios/https/export",
+            "/api/v4/feeds/helios/dns/export",
+            "/api/v4/feeds/helios/adb/export",
+        ]
+    );
+}
+
+#[tokio::test]
+async fn day_and_variant_are_sent_on_every_page() {
+    let server = Server::start(|index, _| match index {
+        0 => json(200, &export_page(&["2026-11-17/3"], Some("c1"))),
+        _ => json(200, &export_page(&["2026-11-17/2"], None)),
+    })
+    .await;
+    let lite = server.client().proxies().with_variant(ExportVariant::Lite);
+
+    let ids: Vec<String> = lite
+        .all_exports_on("2026-11-17", Some(1), None)
+        .map(|export| export.unwrap().id)
+        .collect()
+        .await;
+    lite.list_exports_on("2026-11-17", None, Some("c9"))
+        .await
+        .unwrap();
+    lite.list_exports(None, None).await.unwrap();
+
+    assert_eq!(ids, ["2026-11-17/3", "2026-11-17/2"]);
+    assert_eq!(
+        targets(server.received()),
+        [
+            "/api/v4/feeds/proxies/export?limit=1&day=2026-11-17&variant=lite",
+            "/api/v4/feeds/proxies/export?limit=1&cursor=c1&day=2026-11-17&variant=lite",
+            "/api/v4/feeds/proxies/export?cursor=c9&day=2026-11-17&variant=lite",
+            "/api/v4/feeds/proxies/export?variant=lite",
+        ]
+    );
+}
+
+#[tokio::test]
+async fn variant_is_sent_on_meta_and_downloads() {
+    let server = Server::start(|_, request| {
+        if request.target.contains("/meta") {
+            json(200, META)
+        } else if request.target.starts_with("/storage/") {
+            response(200, &[], b"PAR1")
+        } else {
+            response(307, &[("location", "/storage/lite.parquet")], b"")
+        }
+    })
+    .await;
+    let feed = server.client().anonymizers();
+    let lite = feed.with_variant(ExportVariant::Lite);
+
+    lite.export_meta("2026-05-03").await.unwrap();
+    lite.export_meta("2026-05-03/7").await.unwrap();
+    lite.download_url("2026-05-03").await.unwrap();
+    lite.download_url("2026-05-03/07").await.unwrap();
+    lite.download("latest").await.unwrap();
+    feed.export_meta("2026-05-03").await.unwrap();
+
+    assert_eq!(
+        targets(server.received()),
+        [
+            "/api/v4/feeds/anonymizers/export/2026-05-03/meta?variant=lite",
+            "/api/v4/feeds/anonymizers/export/2026-05-03/7/meta?variant=lite",
+            "/api/v4/feeds/anonymizers/export/2026-05-03?variant=lite",
+            "/api/v4/feeds/anonymizers/export/2026-05-03/7?variant=lite",
+            "/api/v4/feeds/anonymizers/export/latest?variant=lite",
+            "/storage/lite.parquet",
+            "/api/v4/feeds/anonymizers/export/2026-05-03/meta",
+        ]
+    );
+}
+
+#[tokio::test]
+async fn a_missing_lite_file_is_an_api_error() {
+    let server = Server::start(|_, _| {
+        problem(
+            404,
+            r#"{"title":"Not Found","detail":"No snapshot found for the requested date"}"#,
+        )
+    })
+    .await;
+    let lite = server.client().proxies().with_variant(ExportVariant::Lite);
+
+    let err = expect_api_error(lite.download("2026-11-17").await);
+
+    assert_eq!(err.status, StatusCode::NOT_FOUND);
+    assert_eq!(server.received().len(), 1);
+}
+
+#[tokio::test]
+async fn reads_the_export_volume() {
+    let server = Server::start(|_, _| json(200, VOLUME)).await;
+    let feed = server.client().torrents();
+
+    let volume = feed.export_volume(Some(7)).await.unwrap();
+    feed.export_volume(None).await.unwrap();
+
+    assert_eq!(
+        targets(server.received()),
+        [
+            "/api/v4/feeds/torrents/export/daily?days=7",
+            "/api/v4/feeds/torrents/export/daily",
+        ]
+    );
+    assert_eq!(volume.stream, "torrents");
+    assert_eq!(volume.days[0].kind, ExportKind::Daily);
+    assert_eq!(volume.days[0].size_bytes, 125_000_000_000);
+    assert_eq!(volume.days[1].kind, ExportKind::Hourly);
+    assert_eq!(volume.days[1].snapshots, 5);
 }
 
 #[tokio::test]
@@ -144,7 +282,7 @@ async fn reads_export_metadata() {
 
     assert_eq!(
         server.received()[0].target,
-        "/api/v4/feeds/helio/http/export/2026-05-03/7/meta"
+        "/api/v4/feeds/helios/http/export/2026-05-03/7/meta"
     );
     assert_eq!(meta.schema.fields[0].r#type, ParquetType::Uint64);
 }
@@ -178,7 +316,7 @@ async fn invalid_export_ids_send_nothing() {
     let server = Server::start(|_, _| json(200, META)).await;
     let feed = server.client().proxies();
 
-    for id in ["", "yesterday", "2026-05-03/24", "../account/me"] {
+    for id in ["", "yesterday", "daily", "2026-05-03/24", "../account/me"] {
         assert!(
             matches!(feed.export_meta(id).await, Err(Error::InvalidInput(_))),
             "{id:?}"
@@ -228,8 +366,9 @@ async fn returns_the_presigned_url() {
 
 #[tokio::test]
 async fn rejects_unusable_export_redirects() {
-    let cases: [(u16, &[(&str, &str)]); 4] = [
+    let cases: [(u16, &[(&str, &str)]); 5] = [
         (200, &[]),
+        (304, &[]),
         (307, &[]),
         (307, &[("location", "ftp://cdn.example.com/file")]),
         (

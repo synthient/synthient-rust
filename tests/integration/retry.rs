@@ -53,6 +53,7 @@ async fn retries_stop_at_max_retries() {
 }
 
 #[tokio::test]
+#[allow(deprecated)]
 async fn billed_lookups_do_not_retry_server_errors() {
     for code in [500, 502, 503, 504] {
         let server = Server::start(move |_, _| response(code, &[], b"")).await;
@@ -256,6 +257,7 @@ async fn body_read_retry_past_the_timeout_is_skipped() {
 }
 
 #[tokio::test]
+#[allow(deprecated)]
 async fn billed_lookups_do_not_retry_body_read_errors() {
     let server = Server::start(|_, _| truncated_json(IP_INFO)).await;
     let client = server.client();

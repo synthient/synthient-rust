@@ -175,6 +175,18 @@ pub struct HeliosMeta {
     pub provider: Option<String>,
 }
 
+wire_enum! {
+    /// The transport a Helios honeypot tunnel carried an event over.
+    pub enum HeliosTransport {
+        /// TCP.
+        Tcp = "tcp",
+        /// UDP.
+        Udp = "udp",
+        /// QUIC.
+        Quic = "quic",
+    }
+}
+
 /// An HTTP request captured by a Helios honeypot.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -230,6 +242,8 @@ pub struct HeliosHttpsEvent {
     pub protocol: String,
     /// The capturing sensor.
     pub meta: HeliosMeta,
+    /// The transport the tunnel carried the handshake over.
+    pub transport: HeliosTransport,
     /// The parsed ClientHello, or `None` if the sensor could not parse the
     /// handshake.
     pub details: Option<TlsClientHello>,
@@ -294,6 +308,28 @@ pub struct TlsClientHello {
     pub signed_certificate_timestamps: Option<bool>,
     /// Whether the client requested OCSP stapling.
     pub status_request: Option<bool>,
+    /// The offered certificate signature algorithms, from the TLS 1.3
+    /// `signature_algorithms_cert` extension.
+    pub signature_algorithms_cert: Option<Vec<TlsCodeName>>,
+    /// `record_version` as its wire code point, such as 769.
+    pub record_version_code: Option<u16>,
+    /// `handshake_version` as its wire code point, such as 771.
+    pub handshake_version_code: Option<u16>,
+    /// `supported_versions` as wire code points, in the same order and
+    /// including GREASE values.
+    pub supported_version_codes: Option<Vec<u16>>,
+    /// `alpn` with each entry hex-encoded, in the same order.
+    pub alpn_hex: Option<Vec<String>>,
+    /// The `record_size_limit` extension value.
+    pub record_size_limit: Option<u16>,
+    /// The `max_fragment_length` extension value.
+    pub max_fragment_length: Option<u16>,
+    /// The transport the sensor read the handshake from.
+    pub transport: Option<HeliosTransport>,
+    /// `false` when the sensor captured only part of the ClientHello.
+    pub complete: Option<bool>,
+    /// `true` when the ClientHello was cut short.
+    pub truncated: Option<bool>,
 }
 
 /// A TLS registry code point and its name. GREASE values are named
@@ -336,6 +372,8 @@ pub struct HeliosDnsEvent {
     pub protocol: String,
     /// The capturing sensor.
     pub meta: HeliosMeta,
+    /// The transport the tunnel carried the event over.
+    pub transport: HeliosTransport,
 }
 
 /// An Android Debug Bridge shell command captured by a Helios honeypot. It
@@ -353,6 +391,11 @@ pub struct HeliosAdbEvent {
     /// It is not a hash of `command`: every command in a session shares it,
     /// and sessions that replay the same script share it too.
     pub hash: String,
+    /// The capturing sensor, or `None` on events from sensors that do not
+    /// send it yet. The API always sends the field, so a missing one is a
+    /// decode error.
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub meta: Option<HeliosMeta>,
 }
 
 mod base64_bytes {
@@ -389,7 +432,7 @@ mod tests {
 
     #[test]
     fn decodes_tunnel_ids_above_i64_max() {
-        let line = r#"{"timestamp":1778200137487,"tunnel_id":17257744507466107949,"domain":"example.com","port":443,"protocol":"dns","meta":{}}"#;
+        let line = r#"{"timestamp":1778200137487,"tunnel_id":17257744507466107949,"domain":"example.com","port":443,"protocol":"dns","meta":{},"transport":"tcp"}"#;
 
         let event: HeliosDnsEvent = serde_json::from_str(line).unwrap();
 
@@ -399,6 +442,73 @@ mod tests {
                 .unwrap()
                 .contains("17257744507466107949")
         );
+    }
+
+    #[test]
+    fn adb_meta_is_required_but_nullable() {
+        let with_meta = r#"{"session":"00075b3dde7ddb645347a137f01ac991","sequential_id":3,"command":"id","hash":"cd6d","meta":{"proxy_ip":"203.0.113.10","server":"hp-eu-1","pool_id":"prod","provider":"luminati"}}"#;
+        let event: HeliosAdbEvent = serde_json::from_str(with_meta).unwrap();
+        assert_eq!(event.meta.unwrap().server.as_deref(), Some("hp-eu-1"));
+
+        let null = r#"{"session":"s","sequential_id":1,"command":"id","hash":"h","meta":null}"#;
+        let event: HeliosAdbEvent = serde_json::from_str(null).unwrap();
+        assert_eq!(event.meta, None);
+        assert!(
+            serde_json::to_string(&event)
+                .unwrap()
+                .contains(r#""meta":null"#)
+        );
+
+        let missing = r#"{"session":"s","sequential_id":1,"command":"id","hash":"h"}"#;
+        assert!(serde_json::from_str::<HeliosAdbEvent>(missing).is_err());
+    }
+
+    #[test]
+    fn decodes_the_tunnel_transport() {
+        let dns = r#"{"timestamp":1,"tunnel_id":1,"domain":"d","port":53,"protocol":"dns","meta":{},"transport":"quic"}"#;
+        let event: HeliosDnsEvent = serde_json::from_str(dns).unwrap();
+        assert_eq!(event.transport, HeliosTransport::Quic);
+
+        let https = r#"{"timestamp":1,"tunnel_id":1,"domain":"d","port":443,"protocol":"https","meta":{},"transport":"sctp"}"#;
+        let event: HeliosHttpsEvent = serde_json::from_str(https).unwrap();
+        assert_eq!(event.transport, HeliosTransport::Unknown("sctp".into()));
+        assert_eq!(event.details, None);
+
+        let missing =
+            r#"{"timestamp":1,"tunnel_id":1,"domain":"d","port":53,"protocol":"dns","meta":{}}"#;
+        assert!(serde_json::from_str::<HeliosDnsEvent>(missing).is_err());
+    }
+
+    #[test]
+    fn decodes_every_client_hello_field() {
+        let line = r#"{"timestamp":1714780800123,"tunnel_id":17257744507466107949,"domain":"example.com","port":443,"protocol":"https","meta":{"proxy_ip":"203.0.113.10"},"transport":"tcp","details":{"record_version":"TLS 1.0","record_version_code":769,"handshake_version":"TLS 1.2","handshake_version_code":771,"supported_version_codes":[64250,772,771],"alpn_hex":["6832","687474702f312e31"],"signature_algorithms_cert":[{"code":2052,"name":"rsa_pss_rsae_sha256"}],"record_size_limit":16385,"max_fragment_length":4,"complete":false,"truncated":true,"transport":"tcp"}}"#;
+
+        let event: HeliosHttpsEvent = serde_json::from_str(line).unwrap();
+
+        let hello = event.details.unwrap();
+        assert_eq!(hello.record_version_code, Some(769));
+        assert_eq!(hello.handshake_version_code, Some(771));
+        assert_eq!(hello.supported_version_codes, Some(vec![0xFAFA, 772, 771]));
+        assert_eq!(
+            hello.alpn_hex,
+            Some(vec!["6832".to_owned(), "687474702f312e31".to_owned()])
+        );
+        assert_eq!(
+            hello.signature_algorithms_cert.unwrap()[0].name.as_deref(),
+            Some("rsa_pss_rsae_sha256")
+        );
+        assert_eq!(hello.record_size_limit, Some(16385));
+        assert_eq!(hello.max_fragment_length, Some(4));
+        assert_eq!(hello.complete, Some(false));
+        assert_eq!(hello.truncated, Some(true));
+        assert_eq!(hello.transport, Some(HeliosTransport::Tcp));
+
+        let empty: TlsClientHello = serde_json::from_str("{}").unwrap();
+        assert_eq!(empty.complete, None);
+        assert_eq!(empty.truncated, None);
+        assert_eq!(empty.transport, None);
+        assert_eq!(empty.supported_version_codes, None);
+        assert_eq!(empty.signature_algorithms_cert, None);
     }
 
     #[test]

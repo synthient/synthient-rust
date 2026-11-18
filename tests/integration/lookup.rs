@@ -40,6 +40,27 @@ async fn looks_up_an_ipv6_address() {
 }
 
 #[tokio::test]
+async fn a_null_network_and_location_decode_as_absent() {
+    let server = Server::start(|_, _| {
+        json(
+            200,
+            r#"{"ip":"192.0.2.1","network":null,"location":null,"intelligence":{"risk_score":0,"categories":[],"behavior":[],"providers":[],"devices":[]}}"#,
+        )
+    })
+    .await;
+
+    let info = server
+        .client()
+        .lookup_ip(Ipv4Addr::new(192, 0, 2, 1))
+        .await
+        .unwrap();
+
+    assert_eq!(info.network, None);
+    assert_eq!(info.location, None);
+    assert_eq!(info.intelligence.unwrap().risk_score, 0);
+}
+
+#[tokio::test]
 async fn looks_up_a_batch() {
     let body = format!(r#"{{"results":[{IP_INFO}]}}"#);
     let server = Server::start(move |_, _| json(200, &body)).await;
@@ -74,7 +95,8 @@ async fn batch_limits_are_checked_without_a_request() {
 }
 
 #[tokio::test]
-async fn looks_up_a_domain() {
+#[allow(deprecated)]
+async fn deprecated_lookup_domain_still_works() {
     let server = Server::start(|_, _| json(200, DOMAIN_INFO)).await;
 
     let info = server
@@ -95,7 +117,8 @@ async fn looks_up_a_domain() {
 }
 
 #[tokio::test]
-async fn domain_is_one_encoded_path_segment() {
+#[allow(deprecated)]
+async fn deprecated_lookup_domain_encodes_one_path_segment() {
     let server = Server::start(|_, _| json(200, DOMAIN_INFO)).await;
 
     server
@@ -111,7 +134,8 @@ async fn domain_is_one_encoded_path_segment() {
 }
 
 #[tokio::test]
-async fn rejects_domains_that_change_the_path() {
+#[allow(deprecated)]
+async fn deprecated_lookup_domain_rejects_domains_that_change_the_path() {
     let server = Server::start(|_, _| json(200, DOMAIN_INFO)).await;
     let client = server.client();
 
@@ -142,6 +166,37 @@ async fn reads_the_account() {
         account.api_key.unwrap().created_at,
         "2026-09-28T19:04:52.463869Z"
     );
+}
+
+#[tokio::test]
+async fn reads_new_scopes_and_a_null_api_key() {
+    let body = ACCOUNT
+        .replace(
+            r#"["BASIC","PROXY_FEEDS","NEW_SCOPE"]"#,
+            r#"["GEOLOCATION_FEED","WHOIS_FEED","WHOIS_STREAM","HELIOS","NETWORK_IOCS_FEED","NETWORK_IOCS_STREAM","FILE_IOCS_FEED","FILE_IOCS_STREAM"]"#,
+        )
+        .replace(
+            r#""api_key":{"id":"8c1f6a52-0d7e-4f39-b1d2-3e4f5a6b7c8d","name":"sdk","created_at":"2026-09-28T19:04:52.463869Z"}"#,
+            r#""api_key":null"#,
+        );
+    let server = Server::start(move |_, _| json(200, &body)).await;
+
+    let account = server.client().account().await.unwrap();
+
+    assert_eq!(
+        account.scopes,
+        [
+            Scope::GeolocationFeed,
+            Scope::WhoisFeed,
+            Scope::WhoisStream,
+            Scope::Helios,
+            Scope::NetworkIocsFeed,
+            Scope::NetworkIocsStream,
+            Scope::FileIocsFeed,
+            Scope::FileIocsStream,
+        ]
+    );
+    assert_eq!(account.api_key, None);
 }
 
 #[tokio::test]

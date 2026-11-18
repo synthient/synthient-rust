@@ -1,5 +1,5 @@
 //! The Rust client for the [Synthient API](https://docs.synthient.com): IP
-//! and domain intelligence, account details, and the Synthient data feeds.
+//! intelligence, account details, and the Synthient data feeds and datasets.
 //!
 //! Create a [`Client`] with an API key and reuse it for every request:
 //!
@@ -49,9 +49,9 @@
 //!
 //! Requests that cost no credits are retried on 500, 502, 503, and 504
 //! responses, on transport errors, and on 429 responses that carry
-//! Retry-After. Billed lookups ([`Client::lookup_ip`], [`Client::lookup_ips`],
-//! and [`Client::lookup_domain`]) are retried only on 429 responses that
-//! carry Retry-After, which the rate limiter returns before doing any work. A
+//! Retry-After. Billed lookups, such as [`Client::lookup_ip`] and
+//! [`Client::lookup_ips`], are retried only on 429 responses that carry
+//! Retry-After, which the rate limiter returns before doing any work. A
 //! 429 without Retry-After means the key's monthly request budget is spent or
 //! it has too many open streams, so it is returned without a retry.
 //! [`Client::health`] is retried the same way as billed lookups, so it reports
@@ -82,6 +82,9 @@
 //! [`Feed::download`] fetches an export's parquet file without sending the
 //! API key to the storage host.
 //!
+//! A [`Dataset`], such as [`Client::geolocation`], has only daily exports,
+//! which can come in several [`ExportFormat`]s.
+//!
 //! # Timeouts
 //!
 //! By default, connecting gives up after 30 seconds and a read that stalls
@@ -104,6 +107,7 @@ mod wire_enum;
 
 mod account;
 mod client;
+mod dataset;
 mod error;
 mod events;
 mod feed;
@@ -121,20 +125,24 @@ mod conformance;
 
 pub use account::{Account, AccountApiKey, LookupQuota, Organization, Relation, Scope};
 pub use client::{Client, ClientBuilder, DEFAULT_BASE_URL, VERSION};
+pub use dataset::Dataset;
 pub use error::{ApiError, Error, Result};
 pub use events::{
     AnonymizerEvent, HeliosAdbEvent, HeliosDnsEvent, HeliosHttpEvent, HeliosHttpsEvent, HeliosMeta,
-    HttpRequestDetails, Ja4tEvent, ProxyEvent, ProxyType, TlsClientHello, TlsCodeName,
-    TlsExtension, TorrentEvent, TorrentFile, TorrentPeer,
+    HeliosTransport, HttpRequestDetails, Ja4tEvent, ProxyEvent, ProxyType, TlsClientHello,
+    TlsCodeName, TlsExtension, TorrentEvent, TorrentFile, TorrentPeer,
 };
 pub use feed::{
-    Download, Export, ExportKind, ExportMeta, ExportPage, ExportStream, Feed, ParquetColumn,
-    ParquetSchema, ParquetType,
+    Download, Export, ExportEntity, ExportFile, ExportFormat, ExportKind, ExportMeta, ExportPage,
+    ExportStream, ExportVariant, ExportVolume, ExportVolumeDay, Feed, ParquetColumn, ParquetSchema,
+    ParquetType, WhoisEntity,
 };
+#[allow(deprecated)]
+pub use lookup::DomainInfo;
 pub use lookup::{
-    ActivityStats, AsnCount, Cadence, CountryCount, Device, DomainEvent, DomainInfo, DomainStats,
-    DomainStatus, Intelligence, IpInfo, Location, Network, NetworkType, Os, PortCount, Provider,
-    SubdomainCount, TimeSeriesPoint, UniqueIps,
+    ActivityStats, AsnCount, Cadence, CountryCount, Device, DomainEvent, DomainStats, DomainStatus,
+    Intelligence, IpInfo, Location, Network, NetworkType, Os, PortCount, Provider, SubdomainCount,
+    TimeSeriesPoint, UniqueIps,
 };
 pub use reqwest;
 pub use reqwest::StatusCode;

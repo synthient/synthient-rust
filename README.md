@@ -13,7 +13,7 @@
 
 # synthient-rust
 
-The `synthient` crate is the official Rust SDK for the [Synthient API](https://docs.synthient.com): IP and domain intelligence, account details, and real-time and bulk data feeds.
+The `synthient` crate is the official Rust SDK for the [Synthient API](https://docs.synthient.com): IP intelligence, account details, and real-time and bulk data feeds.
 
 [![Crates.io](https://img.shields.io/crates/v/synthient)](https://crates.io/crates/synthient)
 [![docs.rs](https://img.shields.io/docsrs/synthient)](https://docs.rs/synthient)
@@ -79,7 +79,7 @@ resolver = "3"
 
 ## API Keys
 
-Every request needs a Synthient API key. Keys are issued from the Synthient dashboard; if you don't have one, [contact us](mailto:contact@synthient.com). A key's scopes decide what it can call: `BASIC` covers the lookups and `account`, and each feed has its own scopes, listed under [Feeds](#feeds).
+Every request needs a Synthient API key. Keys are issued from the Synthient dashboard; if you don't have one, [contact us](mailto:contact@synthient.com). A key's scopes decide what it can call: `BASIC` covers the lookups and `account`, and each feed and dataset has its own scopes, listed under [Feeds](#feeds) and [Datasets](#datasets).
 
 If a request fails even though you are sending a key:
 
@@ -130,7 +130,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ### Look up many IP addresses
 
-Look up as many as 1000 addresses in one request for `ceil(n * 0.9)` credits. Private and reserved addresses are skipped and duplicates are merged, so match results by `ip`.
+Look up a batch of addresses in one request for `ceil(n * 0.9)` credits. The batch cap depends on your plan: 100 on Free, 500 on Starter, and 1000 on Premium and Enterprise, and the API rejects a larger batch with a 422. Private and reserved addresses are skipped and duplicates are merged, so match results by `ip`.
 
 ```rust
 let ips = ["8.8.8.8".parse()?, "1.1.1.1".parse()?];
@@ -140,23 +140,6 @@ for result in client.lookup_ips(&ips).await? {
     }
 }
 ```
-
-### Look up a domain
-
-Get the honeypot traffic observed for a domain and its most recent events. Each lookup costs one credit.
-
-```rust
-let domain = client.lookup_domain("example.com", Some(10)).await?;
-println!("{} {}", domain.status, domain.stats.events_24h);
-for event in &domain.recent_events {
-    println!(
-        "{} {} {}",
-        event.timestamp.0, event.target_subdomain, event.port
-    );
-}
-```
-
-The second argument caps the recent events, from 1 to 1000; `None` uses the default of 50.
 
 ### Check your account
 
@@ -178,8 +161,7 @@ println!(
 ### [Client](https://docs.rs/synthient/latest/synthient/struct.Client.html)
 
 - [`lookup_ip`](https://docs.rs/synthient/latest/synthient/struct.Client.html#method.lookup_ip) - Look up an IPv4 or IPv6 address
-- [`lookup_ips`](https://docs.rs/synthient/latest/synthient/struct.Client.html#method.lookup_ips) - Look up as many as 1000 addresses in one request
-- [`lookup_domain`](https://docs.rs/synthient/latest/synthient/struct.Client.html#method.lookup_domain) - Look up the honeypot traffic observed for a domain
+- [`lookup_ips`](https://docs.rs/synthient/latest/synthient/struct.Client.html#method.lookup_ips) - Look up a batch of addresses in one request
 - [`account`](https://docs.rs/synthient/latest/synthient/struct.Client.html#method.account) - Get the key's account, scopes, and remaining lookup credits
 - [`health`](https://docs.rs/synthient/latest/synthient/struct.Client.html#method.health) - Check that the API and its dependencies are healthy
 
@@ -189,21 +171,40 @@ Each feed comes from a client method, such as `client.proxies()`, and has the sa
 
 - [`stream`](https://docs.rs/synthient/latest/synthient/struct.Feed.html#method.stream) - Open the feed's real-time event stream
 - [`list_exports`](https://docs.rs/synthient/latest/synthient/struct.Feed.html#method.list_exports) - List one page of the feed's Parquet exports, newest first
+- [`list_exports_on`](https://docs.rs/synthient/latest/synthient/struct.Feed.html#method.list_exports_on) - List one page of a single UTC day's exports
 - [`all_exports`](https://docs.rs/synthient/latest/synthient/struct.Feed.html#method.all_exports) - Stream every export, fetching pages as needed
+- [`all_exports_on`](https://docs.rs/synthient/latest/synthient/struct.Feed.html#method.all_exports_on) - Stream every export of a single UTC day
+- [`export_volume`](https://docs.rs/synthient/latest/synthient/struct.Feed.html#method.export_volume) - Get the rows and bytes the feed exported per UTC day
 - [`export_meta`](https://docs.rs/synthient/latest/synthient/struct.Feed.html#method.export_meta) - Get an export's checksum, size, row count, and Parquet schema
 - [`download`](https://docs.rs/synthient/latest/synthient/struct.Feed.html#method.download) - Download an export's Parquet file
 - [`download_url`](https://docs.rs/synthient/latest/synthient/struct.Feed.html#method.download_url) - Get a presigned URL for an export's Parquet file, valid for 24 hours
+- [`with_variant`](https://docs.rs/synthient/latest/synthient/struct.Feed.html#method.with_variant) - Get a copy of the feed whose export requests ask for a variant, such as `lite`
 
 | Method         | Data                                          | Event type         | Stream scope            | Export scope          |
 | -------------- | --------------------------------------------- | ------------------ | ----------------------- | --------------------- |
 | `proxies`      | Residential, mobile, and datacenter proxies   | `ProxyEvent`       | `PROXY_FIREHOSE`        | `PROXY_FEEDS`         |
 | `anonymizers`  | VPN and anonymizer IP ranges                  | `AnonymizerEvent`  | `ANONYMIZERS_STREAM`    | `ANONYMIZERS_FEED`    |
 | `torrents`     | BitTorrent DHT and tracker peers              | `TorrentEvent`     | `TORRENTS_STREAM`       | `TORRENTS_FEED`       |
-| `ja4t`         | JA4T TCP fingerprints                         | `Ja4tEvent`        | `JA4T_STREAM`           | `JA4T_FEED`           |
 | `helios_http`  | Helios honeypot HTTP requests                 | `HeliosHttpEvent`  | `HONEYPOT_HTTP_STREAM`  | `HONEYPOT_HTTP_FEED`  |
 | `helios_https` | Helios honeypot TLS ClientHellos              | `HeliosHttpsEvent` | `HONEYPOT_HTTPS_STREAM` | `HONEYPOT_HTTPS_FEED` |
 | `helios_dns`   | Helios honeypot tunnel destinations           | `HeliosDnsEvent`   | `HONEYPOT_DNS_STREAM`   | `HONEYPOT_DNS_FEED`   |
 | `helios_adb`   | Helios honeypot Android Debug Bridge commands | `HeliosAdbEvent`   | `HONEYPOT_ADB_STREAM`   | `HONEYPOT_ADB_FEED`   |
+
+### [Datasets](https://docs.rs/synthient/latest/synthient/struct.Dataset.html)
+
+Datasets have one export per UTC day and no stream. Each dataset comes from a client method, such as `client.geolocation()`, and has the same methods:
+
+- [`list_exports`](https://docs.rs/synthient/latest/synthient/struct.Dataset.html#method.list_exports) and [`list_exports_on`](https://docs.rs/synthient/latest/synthient/struct.Dataset.html#method.list_exports_on) - List one page of the dataset's daily exports, newest first
+- [`all_exports`](https://docs.rs/synthient/latest/synthient/struct.Dataset.html#method.all_exports) and [`all_exports_on`](https://docs.rs/synthient/latest/synthient/struct.Dataset.html#method.all_exports_on) - Stream every export, fetching pages as needed
+- [`export_volume`](https://docs.rs/synthient/latest/synthient/struct.Dataset.html#method.export_volume) - Get the rows and bytes the dataset exported per UTC day
+- [`export_meta`](https://docs.rs/synthient/latest/synthient/struct.Dataset.html#method.export_meta) - Get a file's checksum, size, and row count, and list every file of the day
+- [`download`](https://docs.rs/synthient/latest/synthient/struct.Dataset.html#method.download) - Download a day's file in the format you choose
+- [`download_url`](https://docs.rs/synthient/latest/synthient/struct.Dataset.html#method.download_url) - Get a presigned URL for a day's file, valid for 24 hours
+
+| Method        | Data                                    | Scope              | Formats                                   |
+| ------------- | --------------------------------------- | ------------------ | ----------------------------------------- |
+| `geolocation` | IP geolocation, network, and risk data  | `GEOLOCATION_FEED` | `parquet` (default), `csv` (gzip), `mmdb` |
+| `whois`       | WHOIS registry records as Parquet files | `WHOIS_FEED`       | `tar.gz`                                  |
 
 </details>
 
@@ -242,7 +243,7 @@ loop {
 }
 ```
 
-- The server closes each stream after up to 30 minutes. That ends the stream with `None`, and the loop reconnects at once.
+- The server can close a stream at any time, such as during a deploy. That ends the stream with `None` without an error, and the loop reconnects at once.
 - A 401 or 403 stops the loop, because reconnecting can't fix a rejected key or a missing scope.
 - Any other failure ends the stream, and the loop waits 2 seconds before reconnecting.
 - Events sent while disconnected are missed. The API has no resume cursor.
@@ -268,11 +269,20 @@ while let Some(export) = exports.next().await {
 }
 ```
 
+Pass the day as `"YYYY-MM-DD"` to `list_exports_on` or `all_exports_on` to list only one UTC day's exports:
+
+```rust
+let page = client.proxies().list_exports_on("2026-11-17", None, None).await?;
+for export in &page.exports {
+    println!("{} {}", export.id, export.row_count);
+}
+```
+
 On the first page, the newest hourly export has the ID `"latest"`, a moving alias for the freshest export. Its `date` and `hour` give its stable ID, such as `"2026-10-14/21"`.
 
 ## Downloads
 
-Exports are Parquet files. `download` returns a [`Download`](https://docs.rs/synthient/latest/synthient/struct.Download.html), which yields the file in chunks as they arrive:
+Feed exports are Parquet files. `download` returns a [`Download`](https://docs.rs/synthient/latest/synthient/struct.Download.html), which yields the file in chunks as they arrive:
 
 ```rust
 use tokio::io::AsyncWriteExt;
@@ -285,10 +295,29 @@ while let Some(chunk) = download.next().await {
 file.flush().await?;
 ```
 
-- Name an export by its `id` from a listing, by `"latest"`, or by a UTC day as `"YYYY-MM-DD"` or hour as `"YYYY-MM-DD/H"`.
+Datasets offer more formats. This downloads the newest geolocation database as a MaxMind DB:
+
+```rust
+use synthient::ExportFormat;
+use tokio::io::AsyncWriteExt;
+
+let mut download = client
+    .geolocation()
+    .download("latest", Some(ExportFormat::Mmdb))
+    .await?;
+let mut file = tokio::fs::File::create("geolocation.mmdb").await?;
+while let Some(chunk) = download.next().await {
+    file.write_all(&chunk?).await?;
+}
+file.flush().await?;
+```
+
+- Name an export by its `id` from a listing, by `"latest"`, or by a UTC day as `"YYYY-MM-DD"` or hour as `"YYYY-MM-DD/H"`. Datasets have no hourly exports.
 - `export_meta` returns the file's SHA-256 checksum. Use a fixed ID for both calls, because `"latest"` can move between them.
 - `download_url` returns a presigned URL that works without a key for 24 hours, so treat it as a secret. Your API key is never sent to the storage host.
 - Hourly exports roll into the daily export shortly after 00:30 UTC the next day. After that, the hour returns a 400.
+- `proxies()` and `anonymizers()` also publish lite exports, deduplicated to the latest row per address or range and provider. Get a lite feed with `client.proxies().with_variant(ExportVariant::Lite)` to list them. A lite export has the same ID as the full one, so use the lite feed for `export_meta`, `download_url`, and `download` too.
+- Files come back exactly as served: a `csv` download is a `.csv.gz` file, and a WHOIS download is a `.tar.gz` archive of Parquet files.
 
 ## Retries
 
@@ -384,7 +413,7 @@ match client.lookup_ip(Ipv4Addr::new(8, 8, 8, 8)).await {
 | 402    | The team is out of lookup credits                                                                |
 | 403    | The key lacks the scope for the endpoint or feed                                                 |
 | 404    | The export doesn't exist, or a daily export is still rolling up (`retry_after` is set)           |
-| 422    | The input is invalid, such as a private address or a malformed domain                            |
+| 422    | The input is invalid, such as a private address                                                  |
 | 429    | Rate limited if `retry_after` is set; otherwise the budget is spent or too many streams are open |
 | 5xx    | The server failed                                                                                |
 

@@ -299,7 +299,7 @@ fn export(id: &str) -> String {
         hour => ("hourly", format!(r#","hour":{hour}"#)),
     };
     format!(
-        r#"{{"id":"{id}","kind":"{kind}","date":"{date}"{hour},"size_bytes":10,"row_count":2,"checksum":"ab","created_at":1778200137,"download_path":"/api/v4/feeds/proxies/export/{id}"}}"#
+        r#"{{"id":"{id}","kind":"{kind}","date":"{date}"{hour},"size_bytes":10,"row_count":2,"checksum":"ab","created_at":1778200137,"download_path":"/api/v4/feeds/proxies/export/{id}","formats":[{{"format":"parquet","size_bytes":10,"checksum":"ab"}}]}}"#
     )
 }
 

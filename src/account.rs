@@ -21,7 +21,8 @@ pub struct Account {
     pub scopes: Vec<Scope>,
     /// The remaining lookup credit balance.
     pub lookup_quota: LookupQuota,
-    /// The API key used for the request.
+    /// The API key used for the request, or `None` if it was deleted while
+    /// the request was in flight.
     pub api_key: Option<AccountApiKey>,
 }
 
@@ -57,7 +58,8 @@ wire_enum! {
     /// [`TorrentsFeed`](Self::TorrentsFeed) and
     /// [`TorrentsStream`](Self::TorrentsStream). The proxy feed's are
     /// [`ProxyFeeds`](Self::ProxyFeeds) and
-    /// [`ProxyFirehose`](Self::ProxyFirehose).
+    /// [`ProxyFirehose`](Self::ProxyFirehose). Datasets have only an export
+    /// scope, such as [`GeolocationFeed`](Self::GeolocationFeed).
     pub enum Scope {
         /// Lookups and account details.
         Basic = "BASIC",
@@ -101,7 +103,26 @@ wire_enum! {
         Ja4tFeed = "JA4T_FEED",
         /// The JA4T feed stream.
         Ja4tStream = "JA4T_STREAM",
+        /// Helios dashboard access. It authorizes no API operation.
+        Helios = "HELIOS",
+        /// WHOIS dataset exports.
+        WhoisFeed = "WHOIS_FEED",
+        /// Reserved for a WHOIS stream. No operation accepts it yet.
+        WhoisStream = "WHOIS_STREAM",
+        /// Geolocation dataset exports.
+        GeolocationFeed = "GEOLOCATION_FEED",
+        /// Reserved for the exports of an upcoming network IOC feed.
+        NetworkIocsFeed = "NETWORK_IOCS_FEED",
+        /// Reserved for the stream of an upcoming network IOC feed.
+        NetworkIocsStream = "NETWORK_IOCS_STREAM",
+        /// Reserved for the exports of an upcoming file IOC feed.
+        FileIocsFeed = "FILE_IOCS_FEED",
+        /// Reserved for the stream of an upcoming file IOC feed.
+        FileIocsStream = "FILE_IOCS_STREAM",
         /// Internal proxy administration.
+        #[deprecated(
+            note = "ADMIN_PROXIES was removed from the Synthient API and never authorized a public operation. It will be removed in the next major version."
+        )]
         AdminProxies = "ADMIN_PROXIES",
     }
 }
@@ -142,8 +163,9 @@ impl Client {
     ///
     /// # Errors
     ///
-    /// An unhealthy API returns a 503 [`Error::Api`](crate::Error::Api). The
-    /// API does not check the key, but a malformed key returns a 401.
+    /// An unhealthy API returns a 503 [`Error::Api`](crate::Error::Api). It
+    /// needs a valid API key, with any scope, so a malformed or unknown key
+    /// returns a 401.
     pub async fn health(&self) -> Result<()> {
         let url = self.endpoint(["health"]);
         let _: IgnoredAny = self

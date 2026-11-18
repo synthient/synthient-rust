@@ -154,19 +154,16 @@ async fn truncated_bodies_are_transport_errors() {
 
 #[tokio::test]
 async fn transport_errors_do_not_include_the_url() {
-    let base_url = format!("http://{}/api/v4", closed_addr().await);
+    let base_url = format!("http://{}/secret-prefix/api/v4", closed_addr().await);
     let client = synthient::Client::builder("key")
         .base_url(base_url)
         .max_retries(0)
         .build()
         .unwrap();
 
-    let err = client
-        .lookup_domain("secret-domain.example", None)
-        .await
-        .unwrap_err();
+    let err = client.account().await.unwrap_err();
 
     assert!(matches!(err, Error::Http(_)), "{err:?}");
     assert_eq!(err.to_string(), "http request failed");
-    assert!(!format!("{err:?}").contains("secret-domain"), "{err:?}");
+    assert!(!format!("{err:?}").contains("secret-prefix"), "{err:?}");
 }

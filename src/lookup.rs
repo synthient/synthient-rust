@@ -10,19 +10,19 @@ use crate::timestamp::Timestamp;
 
 const MAX_BATCH_SIZE: usize = 1000;
 
-/// The intelligence Synthient holds for an IP address. `network`, `location`,
-/// and `intelligence` are `None` when the API has no data for them.
+/// The intelligence Synthient holds for an IP address.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct IpInfo {
     /// The address that was looked up.
     pub ip: IpAddr,
-    /// The network that announces the address.
+    /// The network that announces the address, or `None` when the address
+    /// is in no known network range or the network lookup failed.
     pub network: Option<Network>,
-    /// The address's geolocation.
+    /// The address's geolocation, or `None` when `network` is `None`.
     pub location: Option<Location>,
     /// The risk score and the proxy, VPN, and device observations for the
-    /// address.
+    /// address, or `None` when the API has none.
     pub intelligence: Option<Intelligence>,
 }
 
@@ -152,6 +152,9 @@ wire_enum! {
 }
 
 /// The honeypot traffic Synthient has observed for a domain.
+#[deprecated(
+    note = "Domain lookup was removed from the Synthient API and will stop working when the endpoint is turned off. It will be removed in the next major version."
+)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct DomainInfo {
@@ -348,8 +351,9 @@ impl Client {
             .await
     }
 
-    /// Looks up as many as 1000 addresses in one request. An empty slice
-    /// returns an empty result without a request.
+    /// Looks up as many addresses in one request as the workspace's plan
+    /// allows: 100 on Free, 500 on Starter, and 1000 on Premium and
+    /// Enterprise. An empty slice returns an empty result without a request.
     ///
     /// Private and reserved addresses are skipped and duplicates collapse
     /// into one result, so there can be fewer results than addresses. Match
@@ -360,8 +364,8 @@ impl Client {
     /// # Errors
     ///
     /// More than 1000 addresses return [`Error::InvalidInput`] without a
-    /// request. A batch with no address the API can look up returns a 422
-    /// [`Error::Api`].
+    /// request. A batch above the plan's limit, or with no address the API
+    /// can look up, returns a 422 [`Error::Api`].
     pub async fn lookup_ips(&self, ips: &[IpAddr]) -> Result<Vec<IpInfo>> {
         if ips.is_empty() {
             return Ok(Vec::new());
@@ -388,14 +392,10 @@ impl Client {
     /// is 50. Internationalized names must be sent in Punycode. A domain that
     /// has never been observed returns [`DomainStatus::Inactive`] and zero
     /// counts rather than an error. Each lookup costs one credit.
-    ///
-    /// ```no_run
-    /// # async fn run(client: synthient::Client) -> Result<(), synthient::Error> {
-    /// let info = client.lookup_domain("example.com", Some(10)).await?;
-    /// println!("{} events in 24h", info.stats.events_24h);
-    /// # Ok(())
-    /// # }
-    /// ```
+    #[deprecated(
+        note = "Domain lookup was removed from the Synthient API and will stop working when the endpoint is turned off. It will be removed in the next major version."
+    )]
+    #[allow(deprecated)]
     pub async fn lookup_domain(&self, domain: &str, limit: Option<u32>) -> Result<DomainInfo> {
         if matches!(domain, "" | "." | "..") {
             return Err(Error::InvalidInput(format!("invalid domain {domain:?}")));

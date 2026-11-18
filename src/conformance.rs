@@ -14,21 +14,22 @@ use crate::client::Client;
 use crate::error::Problem;
 use crate::events::*;
 use crate::feed::{
-    Export, ExportKind, ExportMeta, ExportPage, ParquetColumn, ParquetSchema, ParquetType,
+    Export, ExportEntity, ExportFile, ExportFormat, ExportKind, ExportMeta, ExportPage,
+    ExportVolume, ExportVolumeDay, ParquetColumn, ParquetSchema, ParquetType, WhoisEntity,
 };
 use crate::lookup::*;
 
 type Check = fn(Value) -> Result<Value, serde_json::Error>;
 
 const SCHEMAS: &[(&str, Check)] = &[
-    ("ASNEntry", round_trip::<AsnCount>),
     ("AccountAPIKey", round_trip::<AccountApiKey>),
     ("AccountInfoResponse", round_trip::<Account>),
-    ("ActivityStatsBlock", round_trip::<ActivityStats>),
     ("AnonymizerStreamEntry", round_trip::<AnonymizerEvent>),
-    ("CountryEntry", round_trip::<CountryCount>),
     ("DeviceInfo", round_trip::<Device>),
-    ("DomainLookupResponse", round_trip::<DomainInfo>),
+    ("ExportDailyItem", round_trip::<ExportVolumeDay>),
+    ("ExportDailyResponse", round_trip::<ExportVolume>),
+    ("ExportEntityFile", round_trip::<ExportEntity>),
+    ("ExportFormatFile", round_trip::<ExportFile>),
     ("ExportListItem", round_trip::<Export>),
     ("ExportListResponse", round_trip::<ExportPage>),
     ("ExportMetaResponse", round_trip::<ExportMeta>),
@@ -46,46 +47,63 @@ const SCHEMAS: &[(&str, Check)] = &[
     ("LookupQuota", round_trip::<LookupQuota>),
     ("NetworkInfo", round_trip::<Network>),
     ("Organization", round_trip::<Organization>),
-    ("PortEntry", round_trip::<PortCount>),
     ("ProblemDetails", decode::<Problem>),
     ("ProjectedColumn", round_trip::<ParquetColumn>),
     ("ProviderEntry", round_trip::<Provider>),
     ("ProxyStreamEntry", round_trip::<ProxyEvent>),
-    ("RecentEvent", round_trip::<DomainEvent>),
     ("Schema", round_trip::<ParquetSchema>),
-    ("Stats", round_trip::<DomainStats>),
-    ("SubdomainEntry", round_trip::<SubdomainCount>),
     ("TLSClientHello", round_trip::<TlsClientHello>),
     ("TLSCodeName", round_trip::<TlsCodeName>),
     ("TLSExtension", round_trip::<TlsExtension>),
-    ("TimeSeriesEntry", round_trip::<TimeSeriesPoint>),
     ("TorrentFileEntry", round_trip::<TorrentFile>),
     ("TorrentPeerEntry", round_trip::<TorrentPeer>),
     ("TorrentStreamEntry", round_trip::<TorrentEvent>),
-    ("UniqueIPsBlock", round_trip::<UniqueIps>),
     ("ValidationProblemDetails", decode::<Problem>),
 ];
 
 /// Error bodies are decoded leniently, so the fields a problem does carry
-/// are kept when others are missing.
-const LENIENT: &[&str] = &["ProblemDetails", "ValidationProblemDetails"];
+/// are kept when others are missing. A missing `Schema.fields` decodes as
+/// empty, because the WHOIS meta once sent it as null.
+const LENIENT: &[&str] = &["ProblemDetails", "ValidationProblemDetails", "Schema"];
 
 /// A single-value enum, such as a stream's protocol, stays a plain string and
 /// is not listed here.
 const ENUMS: &[(&str, &str, &[&str])] = &[
     ("AccountInfoResponse", "scopes", Scope::VALUES),
-    ("ActivityStatsBlock", "cadence", Cadence::VALUES),
     ("AnonymizerStreamEntry", "type", ProxyType::VALUES),
     ("DeviceInfo", "os", Os::VALUES),
-    ("DomainLookupResponse", "status", DomainStatus::VALUES),
+    ("ExportDailyItem", "kind", ExportKind::VALUES),
+    ("ExportEntityFile", "entity", WhoisEntity::VALUES),
+    ("ExportFormatFile", "format", ExportFormat::VALUES),
     ("ExportListItem", "kind", ExportKind::VALUES),
+    // `ExportMeta::format` stays a String until the next major version,
+    // because changing its type would break 1.x callers.
+    ("ExportMetaResponse", "format", ExportFormat::VALUES),
     ("ExportMetaResponse", "kind", ExportKind::VALUES),
+    (
+        "HoneypotDNSStreamEntry",
+        "transport",
+        HeliosTransport::VALUES,
+    ),
+    (
+        "HoneypotHTTPSStreamEntry",
+        "transport",
+        HeliosTransport::VALUES,
+    ),
     ("JA4TStreamEntry", "type", ProxyType::VALUES),
     ("NetworkInfo", "type", NetworkType::VALUES),
     ("Organization", "relation", Relation::VALUES),
     ("ProjectedColumn", "type", ParquetType::VALUES),
     ("ProxyStreamEntry", "type", ProxyType::VALUES),
 ];
+
+/// Values the spec dropped that stay deprecated in the SDK until the next
+/// major version.
+const DEPRECATED_VALUES: &[&str] = &["ADMIN_PROXIES"];
+
+/// Operations the spec dropped that stay deprecated in the SDK until the next
+/// major version.
+const DEPRECATED_OPERATIONS: &[&str] = &["GET /lookup/domain/{domain}"];
 
 fn round_trip<T: DeserializeOwned + Serialize>(value: Value) -> Result<Value, serde_json::Error> {
     serde_json::to_value(serde_json::from_value::<T>(value)?)
@@ -290,6 +308,7 @@ fn spec_enums_are_modeled() {
                 continue;
             };
             let mut got = values.to_vec();
+            got.retain(|value| !DEPRECATED_VALUES.contains(value));
             want.sort_unstable();
             got.sort_unstable();
             if got != want {
@@ -318,31 +337,42 @@ fn spec_operations_are_implemented() {
     let mut implemented: BTreeSet<String> = [
         "GET /account/me",
         "GET /health",
-        "GET /lookup/domain/{domain}",
         "GET /lookup/ip/{ip_address}",
         "POST /lookup/ips",
     ]
     .map(String::from)
     .into();
     let feeds = [
-        client.proxies().path,
-        client.anonymizers().path,
-        client.torrents().path,
-        client.ja4t().path,
-        client.helios_http().path,
-        client.helios_https().path,
-        client.helios_dns().path,
-        client.helios_adb().path,
+        client.proxies().exports.path,
+        client.anonymizers().exports.path,
+        client.torrents().exports.path,
+        client.ja4t().exports.path,
+        client.helios_http().exports.path,
+        client.helios_https().exports.path,
+        client.helios_dns().exports.path,
+        client.helios_adb().exports.path,
+    ];
+    let daily = [
+        "/export",
+        "/export/daily",
+        "/export/{date}",
+        "/export/{date}/meta",
+    ];
+    let hourly = [
+        "/export/{date}/{hour}",
+        "/export/{date}/{hour}/meta",
+        "/stream",
     ];
     for path in feeds {
-        for suffix in [
-            "/export",
-            "/export/{date}",
-            "/export/{date}/meta",
-            "/export/{date}/{hour}",
-            "/export/{date}/{hour}/meta",
-            "/stream",
-        ] {
+        for suffix in daily.iter().chain(&hourly) {
+            implemented.insert(format!("GET /{}{suffix}", path.join("/")));
+        }
+    }
+    for path in [
+        client.geolocation().exports.path,
+        client.whois().exports.path,
+    ] {
+        for suffix in daily {
             implemented.insert(format!("GET /{}{suffix}", path.join("/")));
         }
     }
@@ -362,6 +392,10 @@ fn spec_operations_are_implemented() {
 
     let missing: Vec<_> = operations.difference(&implemented).collect();
     let extra: Vec<_> = implemented.difference(&operations).collect();
+    let returned: Vec<_> = DEPRECATED_OPERATIONS
+        .iter()
+        .filter(|operation| operations.contains(**operation))
+        .collect();
     assert!(
         missing.is_empty(),
         "spec operations not implemented: {missing:?}"
@@ -369,5 +403,9 @@ fn spec_operations_are_implemented() {
     assert!(
         extra.is_empty(),
         "implemented operations not in the spec: {extra:?}"
+    );
+    assert!(
+        returned.is_empty(),
+        "deprecated operations are back in the spec: {returned:?}"
     );
 }

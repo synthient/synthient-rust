@@ -45,8 +45,9 @@ const MAX_MESSAGE_SIZE: usize = 32 << 20;
 
 /// Starts a fetch of the protobuf files that define the server's services,
 /// along with all of their imports. `api_key` is sent as `x-api-key`
-/// metadata unless it is blank. Await the returned [`Fetch`] to run it,
-/// optionally after changing its options.
+/// metadata. The Synthient server requires a valid key for reflection, so a
+/// blank key, which is not sent, fails with [`Code::Unauthenticated`]. Await
+/// the returned [`Fetch`] to run it, optionally after changing its options.
 pub fn fetch(api_key: impl Into<String>) -> Fetch {
     Fetch {
         api_key: api_key.into(),

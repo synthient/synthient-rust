@@ -18,10 +18,14 @@ macro_rules! wire_enum {
         }
 
         impl $name {
+            /// Checked against the spec, except for enums that it types as a
+            /// plain string or no longer lists.
             #[cfg(test)]
+            #[allow(dead_code)]
             pub(crate) const VALUES: &[&str] = &[$($value),+];
 
             /// Returns the value as the API sends it.
+            #[allow(deprecated)]
             pub fn as_str(&self) -> &str {
                 match self {
                     $(Self::$variant => $value,)+
@@ -43,6 +47,7 @@ macro_rules! wire_enum {
         }
 
         impl<'de> ::serde::Deserialize<'de> for $name {
+            #[allow(deprecated)]
             fn deserialize<D: ::serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
                 let value = <::std::string::String as ::serde::Deserialize>::deserialize(deserializer)?;
                 Ok(match value.as_str() {

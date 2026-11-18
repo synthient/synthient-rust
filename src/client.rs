@@ -9,6 +9,7 @@ use reqwest::{Method, Response, Url};
 use serde::de::DeserializeOwned;
 use tokio::time::Instant;
 
+use crate::dataset::Dataset;
 use crate::error::{Error, Result, api_error};
 use crate::events::{
     AnonymizerEvent, HeliosAdbEvent, HeliosDnsEvent, HeliosHttpEvent, HeliosHttpsEvent, Ja4tEvent,
@@ -111,23 +112,36 @@ impl Client {
 
     /// The Helios honeypot HTTP capture feed.
     pub fn helios_http(&self) -> Feed<HeliosHttpEvent> {
-        Feed::new(self.clone(), &["feeds", "helio", "http"])
+        Feed::new(self.clone(), &["feeds", "helios", "http"])
     }
 
     /// The Helios honeypot TLS ClientHello capture feed.
     pub fn helios_https(&self) -> Feed<HeliosHttpsEvent> {
-        Feed::new(self.clone(), &["feeds", "helio", "https"])
+        Feed::new(self.clone(), &["feeds", "helios", "https"])
     }
 
     /// The Helios honeypot tunnel destination feed. Despite its name, it does
     /// not carry DNS queries.
     pub fn helios_dns(&self) -> Feed<HeliosDnsEvent> {
-        Feed::new(self.clone(), &["feeds", "helio", "dns"])
+        Feed::new(self.clone(), &["feeds", "helios", "dns"])
     }
 
     /// The Helios honeypot Android Debug Bridge command feed.
     pub fn helios_adb(&self) -> Feed<HeliosAdbEvent> {
-        Feed::new(self.clone(), &["feeds", "helio", "adb"])
+        Feed::new(self.clone(), &["feeds", "helios", "adb"])
+    }
+
+    /// The daily IP geolocation dataset, as parquet, gzipped CSV, and
+    /// MaxMind DB files. Its exports are published after about 01:30 UTC.
+    pub fn geolocation(&self) -> Dataset {
+        Dataset::new(self.clone(), &["feeds", "geolocation"])
+    }
+
+    /// The daily WHOIS registry dataset, as one tar.gz archive of parquet
+    /// files. Its exports are published once the day's registry build is
+    /// done, usually the next morning UTC.
+    pub fn whois(&self) -> Dataset {
+        Dataset::new(self.clone(), &["feeds", "whois"])
     }
 
     /// Returns the API URL for `segments`, each percent-encoded as one path

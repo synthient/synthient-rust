@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use synthient::{
-    Client, Download, Error, EventStream, ExportStream, ProxyEvent, StatusCode, VERSION,
+    Client, Dataset, Download, Error, EventStream, ExportStream, ProxyEvent, StatusCode, VERSION,
 };
 
 use crate::server::{ACCOUNT, API_KEY, Server, json, response};
@@ -137,6 +137,7 @@ fn assert_send<T: Send>(_: &T) {}
 fn assert_send_static<T: Send + 'static>(_: &T) {}
 
 #[test]
+#[allow(deprecated)]
 fn futures_and_streams_are_send() {
     fn send_sync<T: Send + Sync + 'static>() {}
     fn send<T: Send + 'static>() {}
@@ -145,6 +146,7 @@ fn futures_and_streams_are_send() {
     send::<EventStream<ProxyEvent>>();
     send::<ExportStream>();
     send::<Download>();
+    send_sync::<Dataset>();
 
     let client = Client::new(API_KEY).unwrap();
     let feed = client.proxies();
@@ -156,4 +158,10 @@ fn futures_and_streams_are_send() {
     assert_send(&client.lookup_domain("example.com", None));
     assert_send(&feed.list_exports(None, None));
     assert_send_static(&feed.all_exports(None, None));
+    assert_send(&feed.export_volume(None));
+
+    let dataset = client.geolocation();
+    assert_send(&dataset.list_exports_on("2026-11-17", None, None));
+    assert_send(&dataset.download("latest", None));
+    assert_send_static(&dataset.all_exports_on("2026-11-17", None, None));
 }

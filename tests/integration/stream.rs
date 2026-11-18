@@ -40,13 +40,17 @@ async fn delivers_events_before_the_stream_ends() {
     let mut stream = server.client().helios_dns().stream().await.unwrap();
 
     events
-        .send(br#"{"timestamp":1778200137487,"tunnel_id":18446744073709551615,"domain":"example.com","port":53,"protocol":"dns","meta":{"provider":"x"}}"#.to_vec())
+        .send(br#"{"timestamp":1778200137487,"tunnel_id":18446744073709551615,"domain":"example.com","port":53,"protocol":"dns","meta":{"provider":"x"},"transport":"tcp"}"#.to_vec())
         .unwrap();
     events.send(b"\n".to_vec()).unwrap();
     let event = stream.next().await.unwrap().unwrap();
 
     assert_eq!(event.tunnel_id, u64::MAX);
     assert_eq!(event.timestamp.0, 1_778_200_137_487);
+    assert_eq!(
+        server.received()[0].target,
+        "/api/v4/feeds/helios/dns/stream"
+    );
     drop(events);
     assert!(stream.next().await.is_none());
 }

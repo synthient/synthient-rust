@@ -1,6 +1,7 @@
 //! Tests the client against a local HTTP server.
 
 mod client;
+mod dataset;
 mod errors;
 mod feed;
 #[cfg(feature = "grpcschema")]
